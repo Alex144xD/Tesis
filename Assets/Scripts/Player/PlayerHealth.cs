@@ -39,16 +39,14 @@ public class PlayerHealth : MonoBehaviour
     void Update()
     {
         if (canRegen && currentHealth < maxHealth)
-        {
-            currentHealth = Mathf.Min(
-                maxHealth,
-                currentHealth + regenRate * Time.deltaTime
-            );
-        }
+            currentHealth = Mathf.Min(maxHealth,
+                currentHealth + regenRate * Time.deltaTime);
     }
+
 
     public float GetHealthNormalized()
     {
         return currentHealth / maxHealth;
     }
 }
+

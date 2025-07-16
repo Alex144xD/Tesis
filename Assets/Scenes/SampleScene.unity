@@ -166,8 +166,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 800ef202dd9c93649ac8d6b3ae95d0ba, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  width: 21
-  height: 21
+  width: 30
+  height: 30
   floors: 3
   cellSize: 1
   floorHeight: 4
@@ -175,12 +175,12 @@ MonoBehaviour:
   floorPrefab: {fileID: 3885381181281348780, guid: ae6753cd700861a488cfaae316f830b8, type: 3}
   batteryPrefab: {fileID: 2377709228436818982, guid: 0f06f4f1f86f7164cb4a76c5c82c5ce4, type: 3}
   soulFragmentPrefab: {fileID: 2410390602930019369, guid: 8311dedc600998a4eb9c31c702487b59, type: 3}
+  doorPrefab: {fileID: 8577216492764107250, guid: 3344680742600ed498299e5258855e59, type: 3}
   enemyPrefabs:
   - {fileID: 2896832821152426430, guid: 4c5b68b150db17e4e8b2254576e8e4b7, type: 3}
   - {fileID: 2896832821152426430, guid: 4c5b68b150db17e4e8b2254576e8e4b7, type: 3}
   - {fileID: 2896832821152426430, guid: 4c5b68b150db17e4e8b2254576e8e4b7, type: 3}
-  doorPrefab: {fileID: 8577216492764107250, guid: 3344680742600ed498299e5258855e59, type: 3}
-  regenerationInterval: 30
+  baseRegenInterval: 30
   safeRadiusCells: 5
   player: {fileID: 393803999}
 --- !u!1 &330398775

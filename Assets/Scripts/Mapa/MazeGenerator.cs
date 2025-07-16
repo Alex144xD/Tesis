@@ -17,16 +17,17 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     [Header("Prefabs Entidades")]
     public GameObject batteryPrefab;
     public GameObject soulFragmentPrefab;
-    public GameObject doorPrefab;              // ← puerta de salida/transición
+    public GameObject doorPrefab;              // puerta de salida/transición
     public List<GameObject> enemyPrefabs;
 
     [Header("Dinámica")]
-    public float regenerationInterval = 30f;
+    public float baseRegenInterval = 30f;      // intervalo base (ajustable)
+    private float regenerationInterval;        // intervalo actual (calculado)
     public int safeRadiusCells = 5;
     public Transform player;
 
     // ------- estado interno -------
-    private int[,,] maze;                    // [floor, x, y]
+    private int[,,] maze;                    // [piso, x, y]
     private GameObject[,,] wallObjects;      // instancias de muros
     private List<Vector2Int>[] freeCells;    // por piso: celdas libres
     private List<GameObject>[] spawnedEntities;
@@ -57,7 +58,16 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
     void Update()
     {
-        // regeneración parcial de muros
+        // 0) ajustar dinámicamente el intervalo de regeneración según celdas libres
+        int pf = GetPlayerFloor();
+        float sizeFactor = freeCells[pf].Count / (float)(width * height);
+        regenerationInterval = Mathf.Lerp(
+            baseRegenInterval * 1.5f,
+            baseRegenInterval * 0.5f,
+            sizeFactor
+        );
+
+        // 1) regeneración parcial de muros
         regenTimer += Time.deltaTime;
         if (regenTimer >= regenerationInterval)
         {
@@ -65,10 +75,10 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             PartialRegenerate();
         }
 
-        // detectar si cambió de piso el jugador
-        int pf = GetPlayerFloor();
-        if (pf != currentFloor)
-            ChangeFloor(pf);
+        // 2) detectar si cambió de piso el jugador
+        int newFloor = pf;
+        if (newFloor != currentFloor)
+            ChangeFloor(newFloor);
     }
 
     // calcula en qué piso está el jugador según su Y
@@ -97,12 +107,12 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         currentFloor = newFloor;
     }
 
-    // coloca sólo en el piso indicado: jugador, fragmentos de alma, baterías, puertas y enemigos
+    // coloca sólo en el piso indicado: jugador, alma, baterías, puertas y enemigos
     void PlaceEntitiesOnFloor(int floor)
     {
         var used = new HashSet<Vector2Int>();
 
-        // —————— REPOSICIONAR JUGADOR (sólo en piso 0) ——————
+        // — reposicionar jugador (sólo en piso 0)
         if (floor == 0)
         {
             var choices = freeCells[floor];
@@ -116,21 +126,20 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             );
         }
 
-        // —————— CANTIDADES PARA ESTE PISO ——————
+        // — cantidades para este piso
         int soulCount = 1;
         int batteryCount = 2 + floor;
         int enemyCount = Mathf.FloorToInt(
             freeCells[floor].Count * (0.03f + 0.02f * floor)
         );
 
-        // —————— HELPER PARA SPAWNEAR PICKUPS/ENEMIGOS ——————
+        // helper para spawnear en celdas libres
         System.Action<GameObject> SpawnAtFreeCell = go =>
         {
             var avail = new List<Vector2Int>();
             foreach (var c in freeCells[floor])
                 if (!used.Contains(c))
                     avail.Add(c);
-
             if (avail.Count == 0) { Destroy(go); return; }
 
             var choice = avail[Random.Range(0, avail.Count)];
@@ -144,22 +153,21 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             spawnedEntities[floor].Add(go);
         };
 
-        // —————— SPAWNEAR FRAGMENTOS DE ALMA ——————
+        // — fragmentos de alma
         for (int i = 0; i < soulCount; i++)
             SpawnAtFreeCell(Instantiate(soulFragmentPrefab, transform));
 
-        // —————— SPAWNEAR BATERÍAS ——————
+        // — baterías
         for (int i = 0; i < batteryCount; i++)
             SpawnAtFreeCell(Instantiate(batteryPrefab, transform));
 
-        // —————— SPAWNEAR PUERTA EN UN MURO ——————
-        // 1) Elegimos una celda libre al azar
+        // — puerta en un muro contiguo
         Vector2Int doorCell = freeCells[floor][Random.Range(0, freeCells[floor].Count)];
-        // 2) Barajamos las 4 direcciones para buscar un muro contiguo
         var dirs = new List<Vector2Int> {
-        Vector2Int.up, Vector2Int.down,
-        Vector2Int.left, Vector2Int.right
-    };
+            Vector2Int.up, Vector2Int.down,
+            Vector2Int.left, Vector2Int.right
+        };
+        // shuffle
         for (int i = 0; i < dirs.Count; i++)
         {
             int r = Random.Range(i, dirs.Count);
@@ -169,25 +177,21 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         {
             int mx = doorCell.x + d.x;
             int my = doorCell.y + d.y;
-            // si está en rango y hay un muro...
             if (mx >= 0 && mx < width && my >= 0 && my < height &&
                 maze[floor, mx, my] == 1 &&
                 wallObjects[floor, mx, my] != null)
             {
-                // destruimos ese muro
+                // convertir ese muro en puerta
                 Destroy(wallObjects[floor, mx, my]);
                 wallObjects[floor, mx, my] = null;
                 maze[floor, mx, my] = 0;
 
-                // instanciamos la puerta ahí
                 float wy = -floor * floorHeight + cellSize / 2f;
                 var door = Instantiate(doorPrefab,
                     new Vector3(mx * cellSize, wy, my * cellSize),
                     Quaternion.identity,
                     transform
                 );
-
-                // rotación: si el muro era horizontal (left/right), giramos 90°
                 if (d == Vector2Int.left || d == Vector2Int.right)
                     door.transform.Rotate(0, 90, 0);
 
@@ -196,7 +200,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             }
         }
 
-        // —————— SPAWNEAR ENEMIGOS ——————
+        // — enemigos
         for (int i = 0; i < enemyCount; i++)
         {
             var prefab = enemyPrefabs[Random.Range(0, enemyPrefabs.Count)];
@@ -204,16 +208,13 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         }
     }
 
-
-    // ——————————————————————————————————————
-    // 1) Generación de laberintos con DFS + Fisher-Yates
-    // ——————————————————————————————————————
+    // — generación de laberintos (DFS + Fisher–Yates) —
     void GenerateAllFloors()
     {
         for (int f = 0; f < floors; f++)
             GenerateMazeForFloor(f);
 
-        // asegurarse de que no haya pisos idénticos
+        // evitar duplicados
         for (int a = 0; a < floors; a++)
             for (int b = a + 1; b < floors; b++)
                 if (FloorsAreIdentical(a, b))
@@ -250,7 +251,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             Vector2Int.up, Vector2Int.down,
             Vector2Int.left, Vector2Int.right
         };
-        // Fisher–Yates shuffle
+        // shuffle
         for (int i = 0; i < dirs.Count; i++)
         {
             int r = rng.Next(i, dirs.Count);
@@ -269,9 +270,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         }
     }
 
-    // ——————————————————————————————————————
-    // 2) Instanciar muros y pisos
-    // ——————————————————————————————————————
+    // — instanciar muros y pisos —
     void InstantiateAllFloors()
     {
         for (int f = 0; f < floors; f++)
@@ -310,9 +309,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         }
     }
 
-    // ——————————————————————————————————————
-    // 3) Regeneración parcial de muros
-    // ——————————————————————————————————————
+    // — regeneración parcial de muros —
     void PartialRegenerate()
     {
         int pf = GetPlayerFloor();
@@ -321,19 +318,16 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
         for (int f = 0; f < floors; f++)
         {
-            // marcamos safe-region alrededor del jugador sólo en su piso
             bool[,] safe = new bool[width, height];
             if (f == pf)
                 MarkSafeRegion(px, py, safe);
 
-            // generamos un buffer DFS
             int[,] buf = new int[width, height];
             for (int x = 0; x < width; x++)
                 for (int y = 0; y < height; y++)
                     buf[x, y] = 1;
             CarveDFS(1, 1, buf, new System.Random());
 
-            // parcheamos muros
             for (int x = 0; x < width; x++)
                 for (int y = 0; y < height; y++)
                 {
@@ -363,12 +357,13 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         }
     }
 
-    // marking BFS para la región segura
+    // — BFS para la región segura —
     void MarkSafeRegion(int sx, int sy, bool[,] safe)
     {
         var q = new Queue<Vector2Int>();
         var next = new Queue<Vector2Int>();
-        int[] dx = { 1, -1, 0, 0 }, dy = { 0, 0, 1, -1 };
+        int[] dx = { 1, -1, 0, 0 };
+        int[] dy = { 0, 0, 1, -1 };
         safe[sx, sy] = true;
         q.Enqueue(new Vector2Int(sx, sy));
         int depth = 0;
@@ -381,9 +376,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                 for (int i = 0; i < 4; i++)
                 {
                     int nx = c.x + dx[i], ny = c.y + dy[i];
-                    if (nx >= 0 && nx < width &&
-                        ny >= 0 && ny < height &&
-                        !safe[nx, ny])
+                    if (nx >= 0 && nx < width && ny >= 0 && ny < height && !safe[nx, ny])
                     {
                         safe[nx, ny] = true;
                         next.Enqueue(new Vector2Int(nx, ny));
