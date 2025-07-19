@@ -171,15 +171,15 @@ MonoBehaviour:
   floors: 3
   cellSize: 1
   floorHeight: 4
-  wallPrefab: {fileID: 3591644860445115680, guid: a55e8b944b49e774899ecb13192840e5, type: 3}
-  floorPrefab: {fileID: 4202724668555032227, guid: f96442df40a0bf74bbd6431cf2ee05d9, type: 3}
+  wallPrefab: {fileID: 2069553826758840743, guid: 9f81880c798fe7842a5a1728175a3453, type: 3}
+  floorPrefab: {fileID: 3885381181281348780, guid: ae6753cd700861a488cfaae316f830b8, type: 3}
   batteryPrefab: {fileID: 2410390602930019369, guid: 8311dedc600998a4eb9c31c702487b59, type: 3}
   soulFragmentPrefab: {fileID: 2377709228436818982, guid: 0f06f4f1f86f7164cb4a76c5c82c5ce4, type: 3}
   doorPrefab: {fileID: 8577216492764107250, guid: 3344680742600ed498299e5258855e59, type: 3}
   enemyPrefabs:
   - {fileID: 2896832821152426430, guid: 4c5b68b150db17e4e8b2254576e8e4b7, type: 3}
   - {fileID: 2896832821152426430, guid: 4c5b68b150db17e4e8b2254576e8e4b7, type: 3}
-  baseRegenInterval: 30
+  regenerationInterval: 30
   safeRadiusCells: 5
   player: {fileID: 393803999}
 --- !u!1 &330398775

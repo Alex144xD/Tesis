@@ -4,11 +4,11 @@ using System.Collections.Generic;
 public class MultiFloorDynamicMapManager : MonoBehaviour
 {
     [Header("Configuración de mapa")]
-    [Min(3)] public int width = 21;
-    [Min(3)] public int height = 21;
-    [Min(1)] public int floors = 3;
-    public float cellSize = 1f;    // recalculado en Start()
-    public float floorHeight = 4f; // recalculado en Start()
+    public int width = 21;
+    public int height = 21;
+    public int floors = 3;
+    public float cellSize = 1f;
+    public float floorHeight = 4f;
 
     [Header("Prefabs Maze")]
     public GameObject wallPrefab;
@@ -21,54 +21,30 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     public List<GameObject> enemyPrefabs;
 
     [Header("Dinámica")]
-    public float baseRegenInterval = 30f;
-    [Min(0)] public int safeRadiusCells = 5;
+    public float regenerationInterval = 30f;
+    public int safeRadiusCells = 5;
     public Transform player;
 
-    // — estado interno —
+    // estado interno
     private int[,,] maze;
     private GameObject[,,] wallObjects;
     private List<Vector2Int>[] freeCells;
     private List<GameObject>[] spawnedEntities;
-    private GameObject[] floorParents;
     private float regenTimer;
-    private float regenerationInterval;
     private int currentFloor = -1;
-
-    // direcciones fijas
-    private static readonly Vector2Int[] DIRS = {
-        Vector2Int.up, Vector2Int.down,
-        Vector2Int.left, Vector2Int.right
-    };
-    private System.Random rng = new System.Random();
 
     void Start()
     {
-        // — 1) Auto‑detectar tamaños —
-        if (wallPrefab != null && wallPrefab.TryGetComponent<MeshRenderer>(out var mrW))
-            cellSize = mrW.bounds.size.x;
-        if (floorPrefab != null && floorPrefab.TryGetComponent<MeshRenderer>(out var mrF))
-            floorHeight = mrF.bounds.size.y;
+        if (width % 2 == 0) width++;
+        if (height % 2 == 0) height++;
 
-        // — 2) Asegurar dimensiones impares —
-        width |= 1;
-        height |= 1;
-
-        // — 3) Inicializar arrays y padres por piso —
         maze = new int[floors, width, height];
         wallObjects = new GameObject[floors, width, height];
         freeCells = new List<Vector2Int>[floors];
         spawnedEntities = new List<GameObject>[floors];
-        floorParents = new GameObject[floors];
-
         for (int f = 0; f < floors; f++)
-        {
             spawnedEntities[f] = new List<GameObject>();
-            floorParents[f] = new GameObject($"Floor_{f}");
-            floorParents[f].transform.SetParent(transform, false);
-        }
 
-        // — 4) Generar + Instanciar + Mostrar piso 0 —
         GenerateAllFloors();
         InstantiateAllFloors();
         ChangeFloor(0);
@@ -76,21 +52,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
     void Update()
     {
-        // evitar NullRef si algo no terminó de inicializarse
-        if (freeCells == null || freeCells.Length != floors) return;
-
-        int pf = GetPlayerFloor();
-        var cells = freeCells[pf];
-        if (cells == null || cells.Count == 0) return;
-
-        // ajustar intervalo de regeneración
-        float sf = cells.Count / (float)(width * height);
-        regenerationInterval = Mathf.Lerp(
-            baseRegenInterval * 1.5f,
-            baseRegenInterval * 0.5f,
-            sf
-        );
-
         regenTimer += Time.deltaTime;
         if (regenTimer >= regenerationInterval)
         {
@@ -98,31 +59,27 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             PartialRegenerate();
         }
 
+        int pf = GetPlayerFloor();
         if (pf != currentFloor)
             ChangeFloor(pf);
     }
 
     int GetPlayerFloor()
-        => Mathf.Clamp(
+    {
+        return Mathf.Clamp(
             Mathf.RoundToInt(-player.position.y / floorHeight),
             0, floors - 1
         );
+    }
 
     void ChangeFloor(int newFloor)
     {
-        // 1) Limpiar entidades del piso anterior
         if (currentFloor >= 0)
         {
             foreach (var go in spawnedEntities[currentFloor])
                 if (go) Destroy(go);
             spawnedEntities[currentFloor].Clear();
         }
-
-        // 2) Activar sólo el padre de este piso
-        for (int f = 0; f < floors; f++)
-            floorParents[f].SetActive(f == newFloor);
-
-        // 3) Generar pickups/enemigos/puerta
         PlaceEntitiesOnFloor(newFloor);
         currentFloor = newFloor;
     }
@@ -130,44 +87,45 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     void PlaceEntitiesOnFloor(int floor)
     {
         var used = new HashSet<Vector2Int>();
-        var cells = freeCells[floor];
 
-        // reposicionar jugador en piso 0
+        // Jugador
         if (floor == 0)
         {
-            var c = cells[rng.Next(cells.Count)];
-            used.Add(c);
+            var cell = freeCells[floor][Random.Range(0, freeCells[floor].Count)];
+            used.Add(cell);
             float y0 = -floor * floorHeight + 0.1f;
-            player.position = new Vector3(c.x * cellSize, y0, c.y * cellSize);
+            player.position = new Vector3(cell.x * cellSize, y0, cell.y * cellSize);
         }
 
         int soulCount = 1;
         int batteryCount = 2 + floor;
-        int enemyCount = Mathf.FloorToInt(cells.Count * (0.03f + 0.02f * floor));
+        int enemyCount = Mathf.FloorToInt(freeCells[floor].Count * (0.03f + 0.02f * floor));
 
-        // helper local
-        void SpawnAtFreeCell(GameObject go)
+        System.Action<GameObject> Spawn = go =>
         {
             var avail = new List<Vector2Int>();
-            foreach (var cc in cells)
-                if (!used.Contains(cc))
-                    avail.Add(cc);
+            foreach (var c in freeCells[floor])
+                if (!used.Contains(c))
+                    avail.Add(c);
             if (avail.Count == 0) { Destroy(go); return; }
-
-            var pick = avail[rng.Next(avail.Count)];
-            used.Add(pick);
+            var choice = avail[Random.Range(0, avail.Count)];
+            used.Add(choice);
             float y = -floor * floorHeight + 0.1f;
-            go.transform.position = new Vector3(pick.x * cellSize, y, pick.y * cellSize);
+            go.transform.position = new Vector3(choice.x * cellSize, y, choice.y * cellSize);
             spawnedEntities[floor].Add(go);
+        };
+
+        for (int i = 0; i < soulCount; i++) Spawn(Instantiate(soulFragmentPrefab, transform));
+        for (int i = 0; i < batteryCount; i++) Spawn(Instantiate(batteryPrefab, transform));
+
+        // Puerta
+        var doorCell = freeCells[floor][Random.Range(0, freeCells[floor].Count)];
+        var dirs = new List<Vector2Int> { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
+        for (int i = 0; i < dirs.Count; i++)
+        {
+            int r = Random.Range(i, dirs.Count);
+            var tmp = dirs[i]; dirs[i] = dirs[r]; dirs[r] = tmp;
         }
-
-        for (int i = 0; i < soulCount; i++) SpawnAtFreeCell(Instantiate(soulFragmentPrefab, transform));
-        for (int i = 0; i < batteryCount; i++) SpawnAtFreeCell(Instantiate(batteryPrefab, transform));
-
-        // abrir puerta
-        var doorCell = cells[rng.Next(cells.Count)];
-        var dirs = new List<Vector2Int>(DIRS);
-        Shuffle(dirs);
         foreach (var d in dirs)
         {
             int mx = doorCell.x + d.x, my = doorCell.y + d.y;
@@ -175,7 +133,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             if (maze[floor, mx, my] != 1) continue;
             var w = wallObjects[floor, mx, my];
             if (!w) continue;
-
             Destroy(w);
             wallObjects[floor, mx, my] = null;
             maze[floor, mx, my] = 0;
@@ -191,8 +148,8 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
         for (int i = 0; i < enemyCount; i++)
         {
-            var prefab = enemyPrefabs[rng.Next(enemyPrefabs.Count)];
-            SpawnAtFreeCell(Instantiate(prefab, transform));
+            var prefab = enemyPrefabs[Random.Range(0, enemyPrefabs.Count)];
+            Spawn(Instantiate(prefab, transform));
         }
     }
 
@@ -201,7 +158,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         for (int f = 0; f < floors; f++)
             GenerateMazeForFloor(f);
 
-        // asegurar que no queden dos pisos idénticos
         for (int a = 0; a < floors; a++)
             for (int b = a + 1; b < floors; b++)
                 if (FloorsAreIdentical(a, b))
@@ -215,7 +171,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             for (int y = 0; y < height; y++)
                 grid[x, y] = 1;
 
-        CarveDFS(1, 1, grid);
+        CarveDFS(1, 1, grid, new System.Random());
 
         for (int x = 0; x < width; x++)
             for (int y = 0; y < height; y++)
@@ -231,21 +187,23 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         return true;
     }
 
-    // —— CarveDFS usando copia local de DIRS ——
-    void CarveDFS(int cx, int cy, int[,] grid)
+    void CarveDFS(int cx, int cy, int[,] grid, System.Random rng)
     {
         grid[cx, cy] = 0;
-        // **importante**: nueva lista en cada llamada
-        var dirs = new List<Vector2Int>(DIRS);
-        Shuffle(dirs);
+        var dirs = new List<Vector2Int> { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
+        for (int i = 0; i < dirs.Count; i++)
+        {
+            int r = rng.Next(i, dirs.Count);
+            var tmp = dirs[i]; dirs[i] = dirs[r]; dirs[r] = tmp;
+        }
         foreach (var d in dirs)
         {
             int nx = cx + d.x * 2, ny = cy + d.y * 2;
-            if (nx <= 0 || nx >= width - 1 || ny <= 0 || ny >= height - 1) continue;
-            if (grid[nx, ny] != 1) continue;
-
-            grid[cx + d.x, cy + d.y] = 0;
-            CarveDFS(nx, ny, grid);
+            if (nx > 0 && nx < width - 1 && ny > 0 && ny < height - 1 && grid[nx, ny] == 1)
+            {
+                grid[cx + d.x, cy + d.y] = 0;
+                CarveDFS(nx, ny, grid, rng);
+            }
         }
     }
 
@@ -254,15 +212,15 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         for (int f = 0; f < floors; f++)
         {
             float yOff = -f * floorHeight;
-            freeCells[f] = new List<Vector2Int>(width * height / 2);
+            freeCells[f] = new List<Vector2Int>();
 
-            // suelo
+            // *** Aquí cambiamos la escala de Plane dividiendo entre 10 ***
             var floorObj = Instantiate(floorPrefab,
                 new Vector3((width - 1) * cellSize / 2f, yOff, (height - 1) * cellSize / 2f),
-                Quaternion.identity, floorParents[f].transform);
-            floorObj.transform.localScale = new Vector3(width * cellSize, 1, height * cellSize);
+                Quaternion.identity, transform);
+            floorObj.transform.localScale =
+                new Vector3(width * cellSize / 10f, 1, height * cellSize / 10f);
 
-            // muros y lista de libres
             for (int x = 0; x < width; x++)
                 for (int y = 0; y < height; y++)
                 {
@@ -270,7 +228,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                     {
                         var w = Instantiate(wallPrefab,
                             new Vector3(x * cellSize, yOff + cellSize / 2f, y * cellSize),
-                            Quaternion.identity, floorParents[f].transform);
+                            Quaternion.identity, transform);
                         w.transform.localScale = Vector3.one * cellSize;
                         wallObjects[f, x, y] = w;
                     }
@@ -297,8 +255,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             for (int x = 0; x < width; x++)
                 for (int y = 0; y < height; y++)
                     buf[x, y] = 1;
-
-            CarveDFS(1, 1, buf);
+            CarveDFS(1, 1, buf, new System.Random());
 
             for (int x = 0; x < width; x++)
                 for (int y = 0; y < height; y++)
@@ -306,22 +263,23 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                     if (f == pf && safe[x, y]) continue;
                     bool was = maze[f, x, y] == 1;
                     bool will = buf[x, y] == 1;
-                    if (was == will) continue;
-
-                    if (will)
+                    if (was != will)
                     {
-                        var w = Instantiate(wallPrefab,
-                            new Vector3(x * cellSize, -f * floorHeight + cellSize / 2f, y * cellSize),
-                            Quaternion.identity, floorParents[f].transform);
-                        w.transform.localScale = Vector3.one * cellSize;
-                        wallObjects[f, x, y] = w;
+                        if (will)
+                        {
+                            var w = Instantiate(wallPrefab,
+                                new Vector3(x * cellSize, -f * floorHeight + cellSize / 2f, y * cellSize),
+                                Quaternion.identity, transform);
+                            w.transform.localScale = Vector3.one * cellSize;
+                            wallObjects[f, x, y] = w;
+                        }
+                        else if (wallObjects[f, x, y] != null)
+                        {
+                            Destroy(wallObjects[f, x, y]);
+                            wallObjects[f, x, y] = null;
+                        }
+                        maze[f, x, y] = buf[x, y];
                     }
-                    else if (wallObjects[f, x, y] != null)
-                    {
-                        Destroy(wallObjects[f, x, y]);
-                        wallObjects[f, x, y] = null;
-                    }
-                    maze[f, x, y] = buf[x, y];
                 }
         }
     }
@@ -330,6 +288,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     {
         var q = new Queue<Vector2Int>();
         var next = new Queue<Vector2Int>();
+        int[] dx = { 1, -1, 0, 0 }, dy = { 0, 0, 1, -1 };
         safe[sx, sy] = true;
         q.Enqueue(new Vector2Int(sx, sy));
         int depth = 0;
@@ -339,29 +298,18 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             while (q.Count > 0)
             {
                 var c = q.Dequeue();
-                foreach (var d in DIRS)
+                for (int i = 0; i < 4; i++)
                 {
-                    int nx = c.x + d.x, ny = c.y + d.y;
-                    if (nx < 0 || nx >= width || ny < 0 || ny >= height || safe[nx, ny]) continue;
-                    safe[nx, ny] = true;
-                    next.Enqueue(new Vector2Int(nx, ny));
+                    int nx = c.x + dx[i], ny = c.y + dy[i];
+                    if (nx >= 0 && nx < width && ny >= 0 && ny < height && !safe[nx, ny])
+                    {
+                        safe[nx, ny] = true;
+                        next.Enqueue(new Vector2Int(nx, ny));
+                    }
                 }
             }
             depth++;
-            (q, next) = (next, q);
-        }
-    }
-
-    void Shuffle(List<Vector2Int> list)
-    {
-        int n = list.Count;
-        for (int i = 0; i < n - 1; i++)
-        {
-            int r = rng.Next(i, n);
-            var tmp = list[i];
-            list[i] = list[r];
-            list[r] = tmp;
+            var tmp = q; q = next; next = tmp;
         }
     }
 }
-
