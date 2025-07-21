@@ -1,5 +1,6 @@
 using UnityEngine;
 
+[RequireComponent(typeof(CharacterController))]
 public class EnemyMovement : MonoBehaviour
 {
     [Tooltip("Transform del jugador al que perseguir")]
@@ -11,46 +12,55 @@ public class EnemyMovement : MonoBehaviour
     [Tooltip("Rango a partir del cual el enemigo comienza a perseguir al jugador")]
     public float chaseRange = 10f;
 
+    [Tooltip("Daño por segundo al jugador si está muy cerca")]
+    public float damagePerSecond = 10f;
+
     private CharacterController controller;
-    private Vector3 patrolDirection;
-    private float patrolRotateSpeed = 30f;
+    private PlayerHealth playerHealth;
 
     void Start()
     {
         controller = GetComponent<CharacterController>();
-        // Elegimos una dirección aleatoria inicial para patrullar
-        patrolDirection = Random.insideUnitSphere;
-        patrolDirection.y = 0;
-        patrolDirection.Normalize();
+        if (player != null)
+            playerHealth = player.GetComponent<PlayerHealth>();
     }
 
     void Update()
     {
+        if (player == null) return;
+
         float dist = Vector3.Distance(transform.position, player.position);
 
-        if (dist <= chaseRange)
+        if (dist <= 1.5f && playerHealth != null)
+        {
+            // Inflige daño continuo
+            playerHealth.TakeDamage(damagePerSecond * Time.deltaTime);
             ChasePlayer();
+        }
+        else if (dist <= chaseRange)
+        {
+            ChasePlayer();
+        }
         else
+        {
             PatrolInPlace();
+        }
     }
 
- 
     void ChasePlayer()
     {
-        // Mirar al jugador en el plano XZ
         Vector3 lookPos = player.position;
         lookPos.y = transform.position.y;
         transform.LookAt(lookPos);
 
-        // Mover hacia la posición del jugador
         Vector3 dir = (lookPos - transform.position).normalized;
         controller.Move(dir * speed * Time.deltaTime);
     }
 
     void PatrolInPlace()
     {
-        // Gira lentamente
-        transform.Rotate(0, patrolRotateSpeed * Time.deltaTime, 0);
+        // Gira lentamente en su lugar
+        transform.Rotate(0, speed * Time.deltaTime * 10f, 0);
     }
 }
 

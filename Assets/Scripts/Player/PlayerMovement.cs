@@ -47,24 +47,22 @@ public class PlayerMovement : MonoBehaviour
         float moveZ = Input.GetAxis("Vertical");
 
         moveDirection = new Vector3(moveX, 0, moveZ);
-        moveDirection = transform.TransformDirection(moveDirection);
-        moveDirection.Normalize();
+        moveDirection = transform.TransformDirection(moveDirection).normalized;
 
         isRunning = Input.GetKey(KeyCode.LeftShift)
                     && stamina > 0f
                     && moveDirection.magnitude > 0f;
 
-        // velocidad base
         float currentSpeed = isRunning ? runSpeed : walkSpeed;
 
-        // si la salud normalizada < umbral, aplicamos slowdown
+        // Aplica slowdown si vida < umbral
         if (health.GetHealthNormalized() < health.slowThreshold)
             currentSpeed *= health.slowFactor;
 
-        // mover
+        // Mover
         controller.Move(moveDirection * currentSpeed * Time.deltaTime);
 
-        // gravedad
+        // Gravedad
         if (!controller.isGrounded)
             controller.Move(Vector3.down * gravity * Time.deltaTime);
     }
@@ -97,7 +95,6 @@ public class PlayerMovement : MonoBehaviour
             pilas++;
             Destroy(other.gameObject);
             Debug.Log($"¡Recogiste una pila! Total de pilas: {pilas}");
-            // (Aquí puedes recargar la linterna según tu sistema de luz)
         }
     }
 }

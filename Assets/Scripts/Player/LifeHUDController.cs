@@ -18,7 +18,6 @@ public class LifeHUDController : MonoBehaviour
 
     void Start()
     {
-        // Protecciones tempranas por si olvidaste asignar en el Inspector
         if (playerHealth == null)
             Debug.LogError("LifeHUDController: falta asignar playerHealth en el Inspector.", this);
         if (damageOverlay == null)
@@ -30,11 +29,9 @@ public class LifeHUDController : MonoBehaviour
         if (playerHealth == null || damageOverlay == null)
             return;
 
-        // Usa el método GetHealthNormalized() para obtener 0..1
         float hpNorm = playerHealth.GetHealthNormalized();
         float targetAlpha = (1f - hpNorm) * maxAlpha;
 
-        // la transición de alpha
         Color col = damageOverlay.color;
         col.a = Mathf.Lerp(col.a, targetAlpha, Time.deltaTime * fadeSpeed);
         damageOverlay.color = col;
