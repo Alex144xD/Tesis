@@ -134,7 +134,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
             NavMeshSurface surface = floorContainer.AddComponent<NavMeshSurface>();
             surface.collectObjects = CollectObjects.Children;
-            surface.layerMask = ~0;
+            surface.layerMask = LayerMask.GetMask("Floor");
             surface.useGeometry = NavMeshCollectGeometry.RenderMeshes;
             surface.overrideTileSize = true;
             surface.tileSize = 64;
