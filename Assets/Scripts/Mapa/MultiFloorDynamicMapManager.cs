@@ -1,7 +1,6 @@
 ﻿using UnityEngine;
 using UnityEngine.AI;
 using Unity.AI.Navigation;
-using System.Collections;
 using System.Collections.Generic;
 
 public class MultiFloorDynamicMapManager : MonoBehaviour
@@ -22,12 +21,14 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     public GameObject soulFragmentPrefab;
     public GameObject doorPrefab;
     public List<GameObject> enemyPrefabs;
+    public GameObject patrolPointPrefab; // Nuevo prefab para puntos de patrulla
 
     [Header("Dinámica")]
     public float regenerationInterval = 30f;
     public int safeRadiusCells = 5;
     public Transform player;
 
+    // Estado interno
     private int[,,] maze;
     private GameObject[,,] wallObjects;
     private List<Vector2Int>[] freeCells;
@@ -35,6 +36,9 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     private float regenTimer;
     private int currentFloor = -1;
     private NavMeshSurface[] navSurfaces;
+
+    // Lista de puntos de patrulla por piso
+    public List<Transform>[] patrolPointsPerFloor;
 
     void Start()
     {
@@ -45,15 +49,17 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         wallObjects = new GameObject[floors, width, height];
         freeCells = new List<Vector2Int>[floors];
         spawnedEntities = new List<GameObject>[floors];
+        patrolPointsPerFloor = new List<Transform>[floors];
+
         for (int f = 0; f < floors; f++)
+        {
             spawnedEntities[f] = new List<GameObject>();
+            patrolPointsPerFloor[f] = new List<Transform>();
+        }
 
         GenerateAllFloors();
         InstantiateAllFloors();
         ChangeFloor(0);
-
-        // ➤ Agregar obstáculos después de hornear el NavMesh
-        StartCoroutine(DelayedAddObstacles());
     }
 
     void Update()
@@ -63,7 +69,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         {
             regenTimer = 0f;
             PartialRegenerate();
-            StartCoroutine(DelayedAddObstacles());
         }
 
         int pf = GetPlayerFloor();
@@ -127,10 +132,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                         );
 
                         wall.transform.localScale = Vector3.one * cellSize;
-
-                        // ➤ Asignar Tag = "Wall" para detectarlos después
-                        wall.tag = "Wall";
-
                         wallObjects[f, x, y] = wall;
                     }
                     else
@@ -140,10 +141,9 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                 }
             }
 
-            // ➤ NavMeshSurface incluye piso y muros
             NavMeshSurface surface = floorContainer.AddComponent<NavMeshSurface>();
             surface.collectObjects = CollectObjects.Children;
-            surface.layerMask = LayerMask.GetMask("Floor", "Wall");
+            surface.layerMask = LayerMask.GetMask("Floor");
             surface.useGeometry = NavMeshCollectGeometry.RenderMeshes;
             surface.overrideTileSize = true;
             surface.tileSize = 64;
@@ -152,23 +152,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             navSurfaces[f] = surface;
         }
     }
-
-    IEnumerator DelayedAddObstacles()
-    {
-        yield return null; // esperar 1 frame para finalizar bake
-
-        foreach (var wall in GameObject.FindGameObjectsWithTag("Wall"))
-        {
-            if (wall.GetComponent<NavMeshObstacle>() == null)
-            {
-                var obstacle = wall.AddComponent<NavMeshObstacle>();
-                obstacle.carving = true;
-                obstacle.carveOnlyStationary = false; 
-                obstacle.size = wall.transform.localScale;
-            }
-        }
-    }
-
 
     void GenerateAllFloors()
     {
@@ -240,6 +223,27 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         int batteryCount = 2 + floor;
         int enemyCount = Mathf.FloorToInt(freeCells[floor].Count * (0.03f + 0.02f * floor));
 
+        // Generar puntos de patrullaje dinámicamente
+        patrolPointsPerFloor[floor].Clear();
+        int patrolPointCount = Mathf.Clamp(freeCells[floor].Count / 10, 5, 15);
+
+        for (int i = 0; i < patrolPointCount; i++)
+        {
+            var cell = freeCells[floor][Random.Range(0, freeCells[floor].Count)];
+            if (used.Contains(cell)) continue;
+            used.Add(cell);
+
+            float y = -floor * floorHeight + 0.1f;
+            Vector3 pos = new Vector3(cell.x * cellSize, y, cell.y * cellSize);
+
+            NavMeshHit hit;
+            if (NavMesh.SamplePosition(pos, out hit, 1.0f, NavMesh.AllAreas))
+            {
+                GameObject patrol = Instantiate(patrolPointPrefab, hit.position, Quaternion.identity, transform);
+                patrolPointsPerFloor[floor].Add(patrol.transform);
+            }
+        }
+
         System.Action<GameObject> Spawn = go =>
         {
             var avail = new List<Vector2Int>();
@@ -247,11 +251,22 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                 if (!used.Contains(c))
                     avail.Add(c);
             if (avail.Count == 0) { Destroy(go); return; }
+
             var choice = avail[Random.Range(0, avail.Count)];
             used.Add(choice);
             float y = -floor * floorHeight + 0.1f;
-            go.transform.position = new Vector3(choice.x * cellSize, y, choice.y * cellSize);
-            spawnedEntities[floor].Add(go);
+            Vector3 spawnPos = new Vector3(choice.x * cellSize, y, choice.y * cellSize);
+
+            NavMeshHit hit;
+            if (NavMesh.SamplePosition(spawnPos, out hit, 1.0f, NavMesh.AllAreas))
+            {
+                go.transform.position = hit.position;
+                spawnedEntities[floor].Add(go);
+            }
+            else
+            {
+                Destroy(go);
+            }
         };
 
         for (int i = 0; i < soulCount; i++) Spawn(Instantiate(soulFragmentPrefab, transform));
@@ -327,7 +342,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                         {
                             var w = Instantiate(wallPrefab, pos, Quaternion.identity, transform.Find($"Floor_{f}"));
                             w.transform.localScale = Vector3.one * cellSize;
-                            w.tag = "Wall";
                             wallObjects[f, x, y] = w;
                         }
                         else if (wallObjects[f, x, y] != null)
