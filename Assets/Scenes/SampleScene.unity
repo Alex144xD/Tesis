@@ -178,8 +178,8 @@ MonoBehaviour:
   doorPrefab: {fileID: 8577216492764107250, guid: 3344680742600ed498299e5258855e59, type: 3}
   enemyPrefabs:
   - {fileID: 2547632407910942000, guid: af9f138ca1214ae41beb955d1406704e, type: 3}
-  - {fileID: 7901366144787319798, guid: f2e03fd1cffea284890ee861660f8b1d, type: 3}
-  - {fileID: 3595625012628118935, guid: 156ea8d7801e10143a361335f8615ae7, type: 3}
+  - {fileID: 2547632407910942000, guid: af9f138ca1214ae41beb955d1406704e, type: 3}
+  - {fileID: 2547632407910942000, guid: af9f138ca1214ae41beb955d1406704e, type: 3}
   regenerationInterval: 30
   safeRadiusCells: 5
   player: {fileID: 393803999}
@@ -384,7 +384,7 @@ GameObject:
   - component: {fileID: 393804004}
   m_Layer: 0
   m_Name: Capsule
-  m_TagString: Untagged
+  m_TagString: Player
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0

@@ -1,6 +1,7 @@
 ﻿using UnityEngine;
 using UnityEngine.AI;
 using Unity.AI.Navigation;
+using System.Collections;
 using System.Collections.Generic;
 
 public class MultiFloorDynamicMapManager : MonoBehaviour
@@ -27,7 +28,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     public int safeRadiusCells = 5;
     public Transform player;
 
-    // Estado interno
     private int[,,] maze;
     private GameObject[,,] wallObjects;
     private List<Vector2Int>[] freeCells;
@@ -51,6 +51,9 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         GenerateAllFloors();
         InstantiateAllFloors();
         ChangeFloor(0);
+
+        // ➤ Agregar obstáculos después de hornear el NavMesh
+        StartCoroutine(DelayedAddObstacles());
     }
 
     void Update()
@@ -60,6 +63,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         {
             regenTimer = 0f;
             PartialRegenerate();
+            StartCoroutine(DelayedAddObstacles());
         }
 
         int pf = GetPlayerFloor();
@@ -123,6 +127,10 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                         );
 
                         wall.transform.localScale = Vector3.one * cellSize;
+
+                        // ➤ Asignar Tag = "Wall" para detectarlos después
+                        wall.tag = "Wall";
+
                         wallObjects[f, x, y] = wall;
                     }
                     else
@@ -132,9 +140,10 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                 }
             }
 
+            // ➤ NavMeshSurface incluye piso y muros
             NavMeshSurface surface = floorContainer.AddComponent<NavMeshSurface>();
             surface.collectObjects = CollectObjects.Children;
-            surface.layerMask = LayerMask.GetMask("Floor");
+            surface.layerMask = LayerMask.GetMask("Floor", "Wall");
             surface.useGeometry = NavMeshCollectGeometry.RenderMeshes;
             surface.overrideTileSize = true;
             surface.tileSize = 64;
@@ -143,6 +152,23 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             navSurfaces[f] = surface;
         }
     }
+
+    IEnumerator DelayedAddObstacles()
+    {
+        yield return null; // esperar 1 frame para finalizar bake
+
+        foreach (var wall in GameObject.FindGameObjectsWithTag("Wall"))
+        {
+            if (wall.GetComponent<NavMeshObstacle>() == null)
+            {
+                var obstacle = wall.AddComponent<NavMeshObstacle>();
+                obstacle.carving = true;
+                obstacle.carveOnlyStationary = false; 
+                obstacle.size = wall.transform.localScale;
+            }
+        }
+    }
+
 
     void GenerateAllFloors()
     {
@@ -202,7 +228,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     {
         var used = new HashSet<Vector2Int>();
 
-        // Jugador
         if (floor == 0)
         {
             var cell = freeCells[floor][Random.Range(0, freeCells[floor].Count)];
@@ -232,7 +257,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         for (int i = 0; i < soulCount; i++) Spawn(Instantiate(soulFragmentPrefab, transform));
         for (int i = 0; i < batteryCount; i++) Spawn(Instantiate(batteryPrefab, transform));
 
-        // Puerta
         var doorCell = freeCells[floor][Random.Range(0, freeCells[floor].Count)];
         var dirs = new List<Vector2Int> { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
         for (int i = 0; i < dirs.Count; i++)
@@ -260,14 +284,12 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             break;
         }
 
-        // Enemigos
         for (int i = 0; i < enemyCount; i++)
         {
             var prefab = enemyPrefabs[Random.Range(0, enemyPrefabs.Count)];
             Spawn(Instantiate(prefab, transform));
         }
     }
-
 
     void PartialRegenerate()
     {
@@ -305,6 +327,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                         {
                             var w = Instantiate(wallPrefab, pos, Quaternion.identity, transform.Find($"Floor_{f}"));
                             w.transform.localScale = Vector3.one * cellSize;
+                            w.tag = "Wall";
                             wallObjects[f, x, y] = w;
                         }
                         else if (wallObjects[f, x, y] != null)
@@ -318,7 +341,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                 }
             }
 
-            //  Hacer rebake del navmesh solo del piso modificado
             if (navSurfaces[f] != null)
             {
                 navSurfaces[f].BuildNavMesh();
@@ -354,5 +376,4 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             var tmp = q; q = next; next = tmp;
         }
     }
-
 }

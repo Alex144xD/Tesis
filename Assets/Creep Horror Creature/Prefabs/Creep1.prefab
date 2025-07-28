@@ -92,7 +92,7 @@ Animator:
   m_GameObject: {fileID: 2547632407910942000}
   m_Enabled: 1
   m_Avatar: {fileID: 0}
-  m_Controller: {fileID: 0}
+  m_Controller: {fileID: 9100000, guid: 355502ed147ce0f44b33d9c7ab1dca06, type: 2}
   m_CullingMode: 0
   m_UpdateMode: 0
   m_ApplyRootMotion: 0
@@ -118,6 +118,9 @@ MonoBehaviour:
   chaseRange: 10
   attackRange: 2
   damagePerSecond: 10
+  fleeDistance: 5
+  fleeDuration: 3
+  health: 100
   patrolPoints: []
 --- !u!1001 &2547632406756309541
 PrefabInstance:
