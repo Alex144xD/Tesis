@@ -1,13 +1,10 @@
 ﻿using UnityEngine;
 using UnityEngine.AI;
-using System.Collections.Generic;
-
 [RequireComponent(typeof(NavMeshAgent))]
-[RequireComponent(typeof(CapsuleCollider))]
 [RequireComponent(typeof(Animator))]
 public class EnemyFSM : MonoBehaviour
 {
-    public enum State { Patrol, Chase, Attack, Flee, Dead }
+    public enum State { Idle, Patrol, Chase, Attack, Flee, Dead }
     private State currentState;
 
     [Header("General")]
@@ -18,8 +15,13 @@ public class EnemyFSM : MonoBehaviour
     public float fleeDuration = 3f;
     public float health = 100f;
 
-    [Header("Referencias")]
-    public MultiFloorDynamicMapManager mapManager;
+    [Header("Patrullaje Dinámico")]
+    public Transform[] patrolPoints;
+    private int currentPatrolIndex = 0;
+
+    [Header("Raycast Anti-Muros")]
+    public float wallDetectionRange = 1f;
+    public LayerMask wallLayer;
 
     private NavMeshAgent agent;
     private Animator animator;
@@ -29,35 +31,22 @@ public class EnemyFSM : MonoBehaviour
     private bool isDead = false;
     private float fleeTimer = 0f;
 
-    private List<Transform> patrolPoints;
-    private Transform currentPatrolPoint;
-
     void Start()
     {
         agent = GetComponent<NavMeshAgent>();
         animator = GetComponent<Animator>();
-        CapsuleCollider collider = GetComponent<CapsuleCollider>();
-
-        // Configurar collider para evitar traspasar muros
-        collider.isTrigger = false;
-        collider.height = 2f;
-        collider.radius = 0.5f;
-
-        // Referencias
         GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
+
         if (playerObj != null)
         {
             player = playerObj.transform;
             playerHealth = player.GetComponent<PlayerHealth>();
         }
 
-        if (mapManager == null)
-            mapManager = FindObjectOfType<MultiFloorDynamicMapManager>();
+        currentState = patrolPoints.Length > 0 ? State.Patrol : State.Idle;
+        if (currentState == State.Patrol) GoToNextPatrolPoint();
 
-        patrolPoints = GetPatrolPointsForCurrentFloor();
-        PickNextPatrolPoint();
-
-        currentState = State.Patrol;
+        Debug.Log("FSM iniciada. Estado inicial: " + currentState);
     }
 
     void Update()
@@ -66,98 +55,98 @@ public class EnemyFSM : MonoBehaviour
 
         float distanceToPlayer = Vector3.Distance(transform.position, player.position);
 
+        // Verificar muros con Raycast
+        DetectWalls();
+
         switch (currentState)
         {
-            case State.Patrol:
-                Patrol();
+            case State.Idle:
+                SetAnimation(false, false);
                 if (distanceToPlayer <= chaseRange)
                     ChangeState(State.Chase);
                 break;
 
+            case State.Patrol:
+                SetAnimation(true, false);
+                if (distanceToPlayer <= chaseRange)
+                {
+                    ChangeState(State.Chase);
+                }
+                else if (!agent.pathPending && agent.remainingDistance < 0.5f)
+                {
+                    GoToNextPatrolPoint();
+                }
+                break;
+
             case State.Chase:
-                Chase();
+                SetAnimation(true, false);
+                agent.isStopped = false;
+                agent.SetDestination(player.position);
+
                 if (distanceToPlayer <= attackRange)
+                {
                     ChangeState(State.Attack);
+                }
                 else if (distanceToPlayer > chaseRange)
-                    ChangeState(State.Patrol);
+                {
+                    ChangeState(patrolPoints.Length > 0 ? State.Patrol : State.Idle);
+                }
                 break;
 
             case State.Attack:
-                Attack(distanceToPlayer);
+                SetAnimation(false, true);
+                agent.isStopped = true;
+                transform.LookAt(player.position);
+
+                if (distanceToPlayer > attackRange)
+                {
+                    ChangeState(State.Chase);
+                }
+                else if (playerHealth != null)
+                {
+                    playerHealth.TakeDamage(damagePerSecond * Time.deltaTime);
+                }
                 break;
 
             case State.Flee:
-                Flee();
+                SetAnimation(true, false);
+                fleeTimer -= Time.deltaTime;
+                if (fleeTimer <= 0)
+                {
+                    ChangeState(distanceToPlayer <= chaseRange ? State.Chase : State.Patrol);
+                    break;
+                }
+
+                Vector3 fleeDirection = (transform.position - player.position).normalized;
+                Vector3 fleePosition = transform.position + fleeDirection * fleeDistance;
+                agent.isStopped = false;
+                agent.SetDestination(fleePosition);
                 break;
         }
     }
 
-    private void Patrol()
+    void DetectWalls()
     {
-        animator.SetBool("IsWalking", true);
-        animator.SetBool("IsAttacking", false);
-
-        if (currentPatrolPoint == null)
+        if (Physics.Raycast(transform.position + Vector3.up * 0.5f, transform.forward, out RaycastHit hit, wallDetectionRange, wallLayer))
         {
-            PickNextPatrolPoint();
-            return;
-        }
+            Vector3 avoidDir = Vector3.Cross(Vector3.up, hit.normal).normalized;
+            Vector3 newPos = transform.position + avoidDir * 2f;
 
+            if (NavMesh.SamplePosition(newPos, out NavMeshHit navHit, 1f, agent.areaMask))
+            {
+                agent.SetDestination(navHit.position);
+            }
+        }
+    }
+
+    void GoToNextPatrolPoint()
+    {
+        if (patrolPoints.Length == 0) return;
+
+        agent.destination = patrolPoints[currentPatrolIndex].position;
         agent.isStopped = false;
-        agent.SetDestination(currentPatrolPoint.position);
 
-        if (!agent.pathPending && agent.remainingDistance < 0.5f)
-            PickNextPatrolPoint();
-    }
-
-    private void Chase()
-    {
-        animator.SetBool("IsWalking", true);
-        animator.SetBool("IsAttacking", false);
-
-        agent.isStopped = false;
-        agent.SetDestination(player.position);
-    }
-
-    private void Attack(float distance)
-    {
-        animator.SetBool("IsWalking", false);
-        animator.SetBool("IsAttacking", true);
-
-        agent.isStopped = true;
-        transform.LookAt(player.position);
-
-        if (distance > attackRange)
-        {
-            ChangeState(State.Chase);
-        }
-        else if (playerHealth != null)
-        {
-            playerHealth.TakeDamage(damagePerSecond * Time.deltaTime);
-        }
-    }
-
-    private void Flee()
-    {
-        animator.SetBool("IsWalking", true);
-        animator.SetBool("IsAttacking", false);
-
-        fleeTimer -= Time.deltaTime;
-        if (fleeTimer <= 0)
-        {
-            ChangeState(State.Patrol);
-            return;
-        }
-
-        Vector3 fleeDirection = (transform.position - player.position).normalized;
-        Vector3 fleePosition = transform.position + fleeDirection * fleeDistance;
-
-        NavMeshHit hit;
-        if (NavMesh.SamplePosition(fleePosition, out hit, 2f, NavMesh.AllAreas))
-        {
-            agent.isStopped = false;
-            agent.SetDestination(hit.position);
-        }
+        currentPatrolIndex = (currentPatrolIndex + 1) % patrolPoints.Length;
     }
 
     public void TakeFlashlightDamage(float amount)
@@ -176,7 +165,7 @@ public class EnemyFSM : MonoBehaviour
         }
     }
 
-    private void Die()
+    public void Die()
     {
         if (isDead) return;
 
@@ -184,30 +173,18 @@ public class EnemyFSM : MonoBehaviour
         currentState = State.Dead;
         agent.isStopped = true;
         animator.SetBool("IsDead", true);
-        Destroy(gameObject, 3f); // se elimina después de la animación
-    }
-
-    private void PickNextPatrolPoint()
-    {
-        if (patrolPoints == null || patrolPoints.Count == 0) return;
-
-        currentPatrolPoint = patrolPoints[Random.Range(0, patrolPoints.Count)];
-    }
-
-    private List<Transform> GetPatrolPointsForCurrentFloor()
-    {
-        if (mapManager == null) return new List<Transform>();
-
-        int floorIndex = Mathf.Clamp(
-            Mathf.RoundToInt(-transform.position.y / mapManager.floorHeight),
-            0, mapManager.floors - 1
-        );
-
-        return mapManager.patrolPointsPerFloor[floorIndex];
     }
 
     private void ChangeState(State newState)
     {
         currentState = newState;
+        Debug.Log("Estado cambiado a: " + newState);
+    }
+
+    private void SetAnimation(bool walking, bool attacking)
+    {
+        animator.SetBool("IsWalking", walking);
+        animator.SetBool("IsAttacking", attacking);
     }
 }
+

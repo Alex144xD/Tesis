@@ -181,7 +181,6 @@ MonoBehaviour:
   - {fileID: 2547632407910942000, guid: af9f138ca1214ae41beb955d1406704e, type: 3}
   - {fileID: 2547632407910942000, guid: af9f138ca1214ae41beb955d1406704e, type: 3}
   - {fileID: 2547632407910942000, guid: af9f138ca1214ae41beb955d1406704e, type: 3}
-  patrolPointPrefab: {fileID: 514053859}
   regenerationInterval: 30
   safeRadiusCells: 5
   player: {fileID: 393803999}
@@ -1624,7 +1623,7 @@ SceneRoots:
   - {fileID: 231001125}
   - {fileID: 2091619853}
   - {fileID: 1007207000}
-  - {fileID: 393803999}
   - {fileID: 482119896}
   - {fileID: 1172107990}
   - {fileID: 576504015}
+  - {fileID: 393803999}

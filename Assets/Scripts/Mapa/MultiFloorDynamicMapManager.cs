@@ -21,7 +21,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     public GameObject soulFragmentPrefab;
     public GameObject doorPrefab;
     public List<GameObject> enemyPrefabs;
-    public GameObject patrolPointPrefab; // Nuevo prefab para puntos de patrulla
 
     [Header("Dinámica")]
     public float regenerationInterval = 30f;
@@ -37,9 +36,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     private int currentFloor = -1;
     private NavMeshSurface[] navSurfaces;
 
-    // Lista de puntos de patrulla por piso
-    public List<Transform>[] patrolPointsPerFloor;
-
     void Start()
     {
         if (width % 2 == 0) width++;
@@ -49,13 +45,9 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         wallObjects = new GameObject[floors, width, height];
         freeCells = new List<Vector2Int>[floors];
         spawnedEntities = new List<GameObject>[floors];
-        patrolPointsPerFloor = new List<Transform>[floors];
 
         for (int f = 0; f < floors; f++)
-        {
             spawnedEntities[f] = new List<GameObject>();
-            patrolPointsPerFloor[f] = new List<Transform>();
-        }
 
         GenerateAllFloors();
         InstantiateAllFloors();
@@ -109,6 +101,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             floorContainer.transform.parent = transform;
             floorContainer.transform.position = Vector3.zero;
 
+            // Crear el suelo
             var floorObj = Instantiate(
                 floorPrefab,
                 new Vector3((width - 1) * cellSize / 2f, yOff, (height - 1) * cellSize / 2f),
@@ -118,6 +111,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
             floorObj.transform.localScale = new Vector3(width * cellSize / 10f, 1, height * cellSize / 10f);
 
+            // Instanciar muros
             for (int x = 0; x < width; x++)
             {
                 for (int y = 0; y < height; y++)
@@ -133,6 +127,10 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
                         wall.transform.localScale = Vector3.one * cellSize;
                         wallObjects[f, x, y] = wall;
+
+                        // Asegurar collider
+                        if (wall.GetComponent<Collider>() == null)
+                            wall.AddComponent<BoxCollider>();
                     }
                     else
                     {
@@ -149,7 +147,12 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             surface.tileSize = 64;
             surface.BuildNavMesh();
 
-            navSurfaces[f] = surface;
+
+        }
+
+        foreach (var surface in navSurfaces)
+        {
+            surface.BuildNavMesh();
         }
     }
 
@@ -223,33 +226,13 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         int batteryCount = 2 + floor;
         int enemyCount = Mathf.FloorToInt(freeCells[floor].Count * (0.03f + 0.02f * floor));
 
-        // Generar puntos de patrullaje dinámicamente
-        patrolPointsPerFloor[floor].Clear();
-        int patrolPointCount = Mathf.Clamp(freeCells[floor].Count / 10, 5, 15);
-
-        for (int i = 0; i < patrolPointCount; i++)
-        {
-            var cell = freeCells[floor][Random.Range(0, freeCells[floor].Count)];
-            if (used.Contains(cell)) continue;
-            used.Add(cell);
-
-            float y = -floor * floorHeight + 0.1f;
-            Vector3 pos = new Vector3(cell.x * cellSize, y, cell.y * cellSize);
-
-            NavMeshHit hit;
-            if (NavMesh.SamplePosition(pos, out hit, 1.0f, NavMesh.AllAreas))
-            {
-                GameObject patrol = Instantiate(patrolPointPrefab, hit.position, Quaternion.identity, transform);
-                patrolPointsPerFloor[floor].Add(patrol.transform);
-            }
-        }
-
         System.Action<GameObject> Spawn = go =>
         {
             var avail = new List<Vector2Int>();
             foreach (var c in freeCells[floor])
                 if (!used.Contains(c))
                     avail.Add(c);
+
             if (avail.Count == 0) { Destroy(go); return; }
 
             var choice = avail[Random.Range(0, avail.Count)];
@@ -257,8 +240,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             float y = -floor * floorHeight + 0.1f;
             Vector3 spawnPos = new Vector3(choice.x * cellSize, y, choice.y * cellSize);
 
-            NavMeshHit hit;
-            if (NavMesh.SamplePosition(spawnPos, out hit, 1.0f, NavMesh.AllAreas))
+            if (NavMesh.SamplePosition(spawnPos, out NavMeshHit hit, 1.0f, NavMesh.AllAreas))
             {
                 go.transform.position = hit.position;
                 spawnedEntities[floor].Add(go);
@@ -271,34 +253,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
         for (int i = 0; i < soulCount; i++) Spawn(Instantiate(soulFragmentPrefab, transform));
         for (int i = 0; i < batteryCount; i++) Spawn(Instantiate(batteryPrefab, transform));
-
-        var doorCell = freeCells[floor][Random.Range(0, freeCells[floor].Count)];
-        var dirs = new List<Vector2Int> { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
-        for (int i = 0; i < dirs.Count; i++)
-        {
-            int r = Random.Range(i, dirs.Count);
-            var tmp = dirs[i]; dirs[i] = dirs[r]; dirs[r] = tmp;
-        }
-        foreach (var d in dirs)
-        {
-            int mx = doorCell.x + d.x, my = doorCell.y + d.y;
-            if (mx < 0 || mx >= width || my < 0 || my >= height) continue;
-            if (maze[floor, mx, my] != 1) continue;
-            var w = wallObjects[floor, mx, my];
-            if (!w) continue;
-            Destroy(w);
-            wallObjects[floor, mx, my] = null;
-            maze[floor, mx, my] = 0;
-
-            float wy = -floor * floorHeight + cellSize / 2f;
-            var door = Instantiate(doorPrefab,
-                new Vector3(mx * cellSize, wy, my * cellSize),
-                Quaternion.identity, transform);
-            if (d.x != 0) door.transform.Rotate(0, 90, 0);
-            spawnedEntities[floor].Add(door);
-            break;
-        }
-
         for (int i = 0; i < enemyCount; i++)
         {
             var prefab = enemyPrefabs[Random.Range(0, enemyPrefabs.Count)];
