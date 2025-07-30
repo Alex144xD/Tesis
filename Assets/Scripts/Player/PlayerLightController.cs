@@ -1,9 +1,9 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 
 [RequireComponent(typeof(Light))]
 public class PlayerLightController : MonoBehaviour
 {
-    [Header("Referencia a Cámara")]
+    [Header("Referencia a CÃ¡mara")]
     public Camera playerCamera;
 
     [Header("Offset local (hacia adelante)")]
@@ -13,10 +13,11 @@ public class PlayerLightController : MonoBehaviour
     public float minRange = 5f;
     public float maxRange = 15f;
     public float flickerSpeed = 0.1f;
+    public float damagePerSecond = 10f; // DaÃ±o que causa a enemigos
 
-    [Header("Batería")]
-    public float maxBattery = 30f;     // segundos de uso
-    public float drainRate = 1f;      // unidades por segundo
+    [Header("BaterÃ­a")]
+    public float maxBattery = 30f;
+    public float drainRate = 1f;
     public KeyCode toggleKey = KeyCode.F;
 
     private Light lamp;
@@ -44,7 +45,6 @@ public class PlayerLightController : MonoBehaviour
         if (Input.GetKeyDown(toggleKey))
             isOn = !isOn;
 
-        // Si no queda batería, fuerza apagar
         if (currentBattery <= 0f)
             isOn = false;
 
@@ -52,31 +52,52 @@ public class PlayerLightController : MonoBehaviour
 
         if (isOn)
         {
-            // Drenaje de batería
             currentBattery = Mathf.Max(0f, currentBattery - drainRate * Time.deltaTime);
 
-            // Parpadeo
             float t = 0.5f + 0.5f * Mathf.PerlinNoise(Time.time * flickerSpeed, 0f);
             lamp.range = Mathf.Lerp(minRange, maxRange, t);
+
+            // ðŸ”¥ DaÃ±ar enemigos iluminados
+            DamageEnemiesInLight();
         }
 
-        // Mover y rotar junto a la cámara
+        // Mover y rotar junto a la cÃ¡mara
         transform.position = playerCamera.transform.position +
                              playerCamera.transform.TransformVector(localOffset);
         transform.rotation = playerCamera.transform.rotation;
     }
 
+    private void DamageEnemiesInLight()
+    {
+        Collider[] hitColliders = Physics.OverlapSphere(transform.position, lamp.range);
+        foreach (var hit in hitColliders)
+        {
+            if (hit.CompareTag("Enemy"))
+            {
+                Vector3 dirToEnemy = (hit.transform.position - transform.position).normalized;
+                float angle = Vector3.Angle(transform.forward, dirToEnemy);
+
+                // Solo daÃ±ar si estÃ¡ dentro del cono de luz
+                if (angle < lamp.spotAngle / 2f)
+                {
+                    EnemyFSM enemy = hit.GetComponent<EnemyFSM>();
+                    if (enemy != null)
+                    {
+                        enemy.TakeFlashlightDamage(damagePerSecond * Time.deltaTime);
+                    }
+                }
+            }
+        }
+    }
+
     public void RechargeBattery(float amount)
     {
         currentBattery = Mathf.Min(maxBattery, currentBattery + amount);
-        // si recargas y aún tienes carga, deja la linterna encendida
         if (currentBattery > 0f) isOn = true;
     }
 
-   
     public float GetBatteryNormalized()
     {
         return currentBattery / maxBattery;
     }
 }
-

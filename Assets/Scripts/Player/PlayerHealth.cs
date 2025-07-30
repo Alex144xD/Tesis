@@ -4,21 +4,17 @@ public class PlayerHealth : MonoBehaviour
 {
     [Header("Salud")]
     public float maxHealth = 100f;
-    [Tooltip("Puntos de salud regenerados por segundo")]
     public float regenRate = 5f;
-    [Tooltip("Retraso en s antes de empezar a regenerar")]
     public float regenDelay = 3f;
 
     [Header("Penalización de velocidad")]
-    [Tooltip("Por debajo de este % de salud, se aplica slowdown")]
     [Range(0f, 1f)] public float slowThreshold = 0.5f;
-    [Tooltip("Factor de velocidad cuando estás por debajo del umbral")]
     [Range(0f, 1f)] public float slowFactor = 0.5f;
 
     private float currentHealth;
     private bool canRegen = true;
 
-    void Awake()
+    private void Awake()
     {
         currentHealth = maxHealth;
     }
@@ -29,25 +25,52 @@ public class PlayerHealth : MonoBehaviour
         canRegen = false;
         CancelInvoke(nameof(EnableRegen));
         Invoke(nameof(EnableRegen), regenDelay);
+
+        CheckPlayerDeath();
     }
 
-    void EnableRegen()
+    private void EnableRegen()
     {
         canRegen = true;
     }
 
-    void Update()
+    private void Update()
     {
         if (canRegen && currentHealth < maxHealth)
+        {
+            float regenCap = (currentHealth <= maxHealth * slowThreshold)
+                ? maxHealth * slowThreshold
+                : maxHealth;
+
             currentHealth = Mathf.Min(
-                maxHealth,
+                regenCap,
                 currentHealth + regenRate * Time.deltaTime
             );
+        }
+    }
+
+    private void CheckPlayerDeath()
+    {
+        if (currentHealth <= 0f)
+        {
+            Debug.Log("Jugador ha muerto");
+            if (GameManager.Instance != null)
+                GameManager.Instance.PlayerLose();
+        }
     }
 
     public float GetHealthNormalized()
     {
         return currentHealth / maxHealth;
     }
-}
 
+    public float GetSpeedFactor()
+    {
+        return (currentHealth <= maxHealth * slowThreshold) ? slowFactor : 1f;
+    }
+
+    public void Heal(float amount)
+    {
+        currentHealth = Mathf.Min(maxHealth, currentHealth + amount);
+    }
+}

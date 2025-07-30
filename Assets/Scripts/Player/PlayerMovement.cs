@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -55,14 +55,12 @@ public class PlayerMovement : MonoBehaviour
 
         float currentSpeed = isRunning ? runSpeed : walkSpeed;
 
-        // Aplica slowdown si vida < umbral
-        if (health.GetHealthNormalized() < health.slowThreshold)
-            currentSpeed *= health.slowFactor;
+        // ✅ Ajuste: aplicar factor de velocidad desde PlayerHealth
+        currentSpeed *= health.GetSpeedFactor();
 
-        // Mover
         controller.Move(moveDirection * currentSpeed * Time.deltaTime);
 
-        // Gravedad
+        // Aplicar gravedad
         if (!controller.isGrounded)
             controller.Move(Vector3.down * gravity * Time.deltaTime);
     }
@@ -88,13 +86,13 @@ public class PlayerMovement : MonoBehaviour
         {
             llaves++;
             Destroy(other.gameObject);
-            Debug.Log($"�Recogiste una llave! Total de llaves: {llaves}");
+            Debug.Log($"¡Recogiste una llave! Total de llaves: {llaves}");
         }
         else if (other.CompareTag("Pila"))
         {
             pilas++;
             Destroy(other.gameObject);
-            Debug.Log($"�Recogiste una pila! Total de pilas: {pilas}");
+            Debug.Log($"¡Recogiste una pila! Total de pilas: {pilas}");
         }
     }
 }

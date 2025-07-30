@@ -301,6 +301,7 @@ MonoBehaviour:
   minRange: 5
   maxRange: 15
   flickerSpeed: 0.1
+  damagePerSecond: 10
   maxBattery: 30
   drainRate: 1
   toggleKey: 102
@@ -1612,9 +1613,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   playerHealth: {fileID: 393804003}
-  damageOverlay: {fileID: 1464950381}
+  bloodOverlay: {fileID: 1464950381}
   maxAlpha: 0.6
   fadeSpeed: 2
+  pulseSpeed: 5
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

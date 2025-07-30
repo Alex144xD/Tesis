@@ -5,6 +5,8 @@ using System.Collections.Generic;
 
 public class MultiFloorDynamicMapManager : MonoBehaviour
 {
+    public static MultiFloorDynamicMapManager Instance;
+
     [Header("Configuración de mapa")]
     public int width = 21;
     public int height = 21;
@@ -27,7 +29,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     public int safeRadiusCells = 5;
     public Transform player;
 
-    // Estado interno
     private int[,,] maze;
     private GameObject[,,] wallObjects;
     private List<Vector2Int>[] freeCells;
@@ -35,6 +36,11 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     private float regenTimer;
     private int currentFloor = -1;
     private NavMeshSurface[] navSurfaces;
+
+    void Awake()
+    {
+        if (Instance == null) Instance = this;
+    }
 
     void Start()
     {
@@ -52,6 +58,13 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         GenerateAllFloors();
         InstantiateAllFloors();
         ChangeFloor(0);
+
+        // Configurar inventario del jugador
+        var inventory = player.GetComponent<PlayerInventory>();
+        if (inventory != null)
+        {
+            inventory.totalLevels = floors;
+        }
     }
 
     void Update()
@@ -74,6 +87,13 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             Mathf.RoundToInt(-player.position.y / floorHeight),
             0, floors - 1
         );
+    }
+
+    public void GoToNextFloor()
+    {
+        int nextFloor = Mathf.Min(currentFloor + 1, floors - 1);
+        ChangeFloor(nextFloor);
+        Debug.Log("Cambio al piso: " + nextFloor);
     }
 
     void ChangeFloor(int newFloor)
@@ -101,7 +121,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             floorContainer.transform.parent = transform;
             floorContainer.transform.position = Vector3.zero;
 
-            // Crear el suelo
             var floorObj = Instantiate(
                 floorPrefab,
                 new Vector3((width - 1) * cellSize / 2f, yOff, (height - 1) * cellSize / 2f),
@@ -111,7 +130,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
             floorObj.transform.localScale = new Vector3(width * cellSize / 10f, 1, height * cellSize / 10f);
 
-            // Instanciar muros
             for (int x = 0; x < width; x++)
             {
                 for (int y = 0; y < height; y++)
@@ -128,7 +146,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                         wall.transform.localScale = Vector3.one * cellSize;
                         wallObjects[f, x, y] = wall;
 
-                        // Asegurar collider
                         if (wall.GetComponent<Collider>() == null)
                             wall.AddComponent<BoxCollider>();
                     }
@@ -141,13 +158,12 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
             NavMeshSurface surface = floorContainer.AddComponent<NavMeshSurface>();
             surface.collectObjects = CollectObjects.Children;
-            surface.layerMask = LayerMask.GetMask("Floor");
-            surface.useGeometry = NavMeshCollectGeometry.RenderMeshes;
+            surface.layerMask = LayerMask.GetMask("Floor", "Wall");
+            surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
             surface.overrideTileSize = true;
-            surface.tileSize = 64;
-            surface.BuildNavMesh();
+            surface.tileSize = 32;
 
-
+            navSurfaces[f] = surface;
         }
 
         foreach (var surface in navSurfaces)
@@ -214,7 +230,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     {
         var used = new HashSet<Vector2Int>();
 
-        if (floor == 0)
+        if (floor == 0 && player != null)
         {
             var cell = freeCells[floor][Random.Range(0, freeCells[floor].Count)];
             used.Add(cell);
@@ -240,7 +256,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             float y = -floor * floorHeight + 0.1f;
             Vector3 spawnPos = new Vector3(choice.x * cellSize, y, choice.y * cellSize);
 
-            if (NavMesh.SamplePosition(spawnPos, out NavMeshHit hit, 1.0f, NavMesh.AllAreas))
+            if (NavMesh.SamplePosition(spawnPos, out NavMeshHit hit, 3.0f, NavMesh.AllAreas))
             {
                 go.transform.position = hit.position;
                 spawnedEntities[floor].Add(go);
