@@ -1,5 +1,6 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.Events;
 
 public class GameManager : MonoBehaviour
 {
@@ -9,6 +10,11 @@ public class GameManager : MonoBehaviour
     public bool isPaused = false;
     public bool isGameOver = false;
     public bool isVictory = false;
+
+    [Header("Eventos")]
+    public UnityEvent onVictory;
+    public UnityEvent onDefeat;
+    public UnityEvent onGameRestart;
 
     private void Awake()
     {
@@ -30,8 +36,8 @@ public class GameManager : MonoBehaviour
         isVictory = true;
         Debug.Log("Juego ganado");
 
-        // TODO: Mostrar pantalla de victoria
-        // UIManager.Instance.ShowVictoryScreen();
+        onVictory?.Invoke();
+        UIManager.Instance.ShowVictoryScreen();
         PauseGame();
     }
 
@@ -42,8 +48,8 @@ public class GameManager : MonoBehaviour
         isGameOver = true;
         Debug.Log("Jugador ha muerto");
 
-        // TODO: Mostrar pantalla de derrota
-        // UIManager.Instance.ShowDefeatScreen();
+        onDefeat?.Invoke();
+        UIManager.Instance.ShowDefeatScreen();
         PauseGame();
     }
 
@@ -51,12 +57,14 @@ public class GameManager : MonoBehaviour
     {
         isPaused = true;
         Time.timeScale = 0f;
+        UIManager.Instance.ShowPauseScreen();
     }
 
     public void ResumeGame()
     {
         isPaused = false;
         Time.timeScale = 1f;
+        UIManager.Instance.HidePauseScreen(); // ✅ Ahora funciona
     }
 
     public void RestartGame()
@@ -66,6 +74,7 @@ public class GameManager : MonoBehaviour
         isGameOver = false;
         isVictory = false;
 
+        onGameRestart?.Invoke();
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
     }
 

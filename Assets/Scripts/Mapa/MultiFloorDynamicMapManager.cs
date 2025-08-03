@@ -37,6 +37,14 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     private int currentFloor = -1;
     private NavMeshSurface[] navSurfaces;
 
+    [System.Serializable]
+    public class PatrolArea
+    {
+        public List<Transform> patrolPoints = new List<Transform>();
+    }
+
+    public List<PatrolArea>[] patrolAreas;
+
     void Awake()
     {
         if (Instance == null) Instance = this;
@@ -51,15 +59,19 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         wallObjects = new GameObject[floors, width, height];
         freeCells = new List<Vector2Int>[floors];
         spawnedEntities = new List<GameObject>[floors];
+        patrolAreas = new List<PatrolArea>[floors];
 
         for (int f = 0; f < floors; f++)
+        {
             spawnedEntities[f] = new List<GameObject>();
+            patrolAreas[f] = new List<PatrolArea>();
+        }
 
         GenerateAllFloors();
         InstantiateAllFloors();
+        CreatePatrolAreas();
         ChangeFloor(0);
 
-        // Configurar inventario del jugador
         var inventory = player.GetComponent<PlayerInventory>();
         if (inventory != null)
         {
@@ -119,7 +131,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
             GameObject floorContainer = new GameObject($"Floor_{f}");
             floorContainer.transform.parent = transform;
-            floorContainer.transform.position = Vector3.zero;
 
             var floorObj = Instantiate(
                 floorPrefab,
@@ -142,12 +153,8 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                             Quaternion.identity,
                             floorContainer.transform
                         );
-
                         wall.transform.localScale = Vector3.one * cellSize;
                         wallObjects[f, x, y] = wall;
-
-                        if (wall.GetComponent<Collider>() == null)
-                            wall.AddComponent<BoxCollider>();
                     }
                     else
                     {
@@ -158,16 +165,12 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
             NavMeshSurface surface = floorContainer.AddComponent<NavMeshSurface>();
             surface.collectObjects = CollectObjects.Children;
-            surface.layerMask = LayerMask.GetMask("Floor", "Wall");
+            surface.layerMask = LayerMask.GetMask("Floor");
             surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
             surface.overrideTileSize = true;
             surface.tileSize = 32;
 
             navSurfaces[f] = surface;
-        }
-
-        foreach (var surface in navSurfaces)
-        {
             surface.BuildNavMesh();
         }
     }
@@ -359,5 +362,51 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             depth++;
             var tmp = q; q = next; next = tmp;
         }
+    }
+
+    // Crear múltiples áreas de patrulla
+    void CreatePatrolAreas()
+    {
+        int numAreas = 3; // cantidad de áreas por piso
+
+        for (int f = 0; f < floors; f++)
+        {
+            patrolAreas[f] = new List<PatrolArea>();
+            int cellsPerArea = Mathf.CeilToInt((float)freeCells[f].Count / numAreas);
+
+            for (int a = 0; a < numAreas; a++)
+            {
+                PatrolArea area = new PatrolArea();
+                int start = a * cellsPerArea;
+                int end = Mathf.Min(start + cellsPerArea, freeCells[f].Count);
+
+                for (int i = start; i < end; i++)
+                {
+                    var cell = freeCells[f][i];
+                    var pointObj = new GameObject($"PatrolPoint_F{f}_A{a}_{cell.x}_{cell.y}");
+                    pointObj.transform.position = new Vector3(cell.x * cellSize, -f * floorHeight + 0.1f, cell.y * cellSize);
+                    area.patrolPoints.Add(pointObj.transform);
+                }
+
+                patrolAreas[f].Add(area);
+            }
+        }
+    }
+
+    public PatrolArea GetPatrolArea(int floorIndex, int areaIndex)
+    {
+        if (patrolAreas == null || floorIndex < 0 || floorIndex >= patrolAreas.Length)
+            return null;
+        if (areaIndex < 0 || areaIndex >= patrolAreas[floorIndex].Count)
+            return null;
+
+        return patrolAreas[floorIndex][areaIndex];
+    }
+
+    public int GetTotalPatrolAreas()
+    {
+        if (patrolAreas == null || patrolAreas[0] == null)
+            return 0;
+        return patrolAreas[0].Count;
     }
 }

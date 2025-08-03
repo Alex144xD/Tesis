@@ -1,17 +1,33 @@
 using UnityEngine;
 
+[RequireComponent(typeof(Collider))]
 public class SoulFragmentPickup : MonoBehaviour
 {
+    [Header("Efectos opcionales")]
+    public AudioClip pickupSound;
+    public ParticleSystem pickupEffect;
+
+    private bool isCollected = false;
+
     private void OnTriggerEnter(Collider other)
     {
-        if (other.CompareTag("Player"))
+        if (isCollected) return;
+
+        if (other.CompareTag("Player") &&
+            other.TryGetComponent<PlayerInventory>(out var inventory))
         {
-            var inventory = other.GetComponent<PlayerInventory>();
-            if (inventory != null)
-            {
-                inventory.AddSoulFragment();
-                Destroy(gameObject);
-            }
+            isCollected = true;
+            inventory.AddSoulFragment();
+
+            // Reproducir sonido
+            if (pickupSound)
+                AudioSource.PlayClipAtPoint(pickupSound, transform.position);
+
+            // Partículas
+            if (pickupEffect)
+                Instantiate(pickupEffect, transform.position, Quaternion.identity);
+
+            Destroy(gameObject);
         }
     }
 }
