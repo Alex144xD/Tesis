@@ -16,6 +16,9 @@ public class GameManager : MonoBehaviour
     public UnityEvent onDefeat;
     public UnityEvent onGameRestart;
 
+    [Header("Controles")]
+    public KeyCode pauseKey = KeyCode.Escape;
+
     private void Awake()
     {
         if (Instance == null)
@@ -29,6 +32,18 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    private void Update()
+    {
+        // ❌ Evitar pausa si el jugador está muerto o ganó
+        if (Input.GetKeyDown(pauseKey) && !isGameOver && !isVictory)
+        {
+            if (!isPaused)
+                PauseGame();
+            else
+                ResumeGame();
+        }
+    }
+
     public void PlayerWin()
     {
         if (isVictory) return;
@@ -38,7 +53,7 @@ public class GameManager : MonoBehaviour
 
         onVictory?.Invoke();
         UIManager.Instance.ShowVictoryScreen();
-        PauseGame();
+        FreezeGame();
     }
 
     public void PlayerLose()
@@ -50,7 +65,7 @@ public class GameManager : MonoBehaviour
 
         onDefeat?.Invoke();
         UIManager.Instance.ShowDefeatScreen();
-        PauseGame();
+        FreezeGame();
     }
 
     public void PauseGame()
@@ -64,7 +79,7 @@ public class GameManager : MonoBehaviour
     {
         isPaused = false;
         Time.timeScale = 1f;
-        UIManager.Instance.HidePauseScreen(); // ✅ Ahora funciona
+        UIManager.Instance.HidePauseScreen();
     }
 
     public void RestartGame()
@@ -82,5 +97,11 @@ public class GameManager : MonoBehaviour
     {
         Debug.Log("Saliendo del juego...");
         Application.Quit();
+    }
+
+    private void FreezeGame()
+    {
+        isPaused = true;
+        Time.timeScale = 0f;
     }
 }
