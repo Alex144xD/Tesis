@@ -55,12 +55,10 @@ public class PlayerMovement : MonoBehaviour
 
         float currentSpeed = isRunning ? runSpeed : walkSpeed;
 
-        // ✅ Ajuste: aplicar factor de velocidad desde PlayerHealth
         currentSpeed *= health.GetSpeedFactor();
 
         controller.Move(moveDirection * currentSpeed * Time.deltaTime);
 
-        // Aplicar gravedad
         if (!controller.isGrounded)
             controller.Move(Vector3.down * gravity * Time.deltaTime);
     }
@@ -78,6 +76,11 @@ public class PlayerMovement : MonoBehaviour
     public float GetStaminaNormalized()
     {
         return stamina / staminaMax;
+    }
+
+    public bool IsRunning()
+    {
+        return isRunning;
     }
 
     void OnTriggerEnter(Collider other)

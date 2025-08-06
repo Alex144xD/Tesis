@@ -1,6 +1,5 @@
 ﻿using UnityEngine;
-using UnityEngine.AI;
-using Unity.AI.Navigation;
+using System;
 using System.Collections.Generic;
 
 public class MultiFloorDynamicMapManager : MonoBehaviour
@@ -29,21 +28,16 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     public int safeRadiusCells = 5;
     public Transform player;
 
+    public event Action OnMapUpdated;
+
     private int[,,] maze;
+    private bool[,,] walkableGrid;
     private GameObject[,,] wallObjects;
+    private GameObject[] floorContainers;
     private List<Vector2Int>[] freeCells;
     private List<GameObject>[] spawnedEntities;
     private float regenTimer;
     private int currentFloor = -1;
-    private NavMeshSurface[] navSurfaces;
-
-    [System.Serializable]
-    public class PatrolArea
-    {
-        public List<Transform> patrolPoints = new List<Transform>();
-    }
-
-    public List<PatrolArea>[] patrolAreas;
 
     void Awake()
     {
@@ -57,26 +51,21 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
         maze = new int[floors, width, height];
         wallObjects = new GameObject[floors, width, height];
+        walkableGrid = new bool[floors, width, height];
         freeCells = new List<Vector2Int>[floors];
         spawnedEntities = new List<GameObject>[floors];
-        patrolAreas = new List<PatrolArea>[floors];
+        floorContainers = new GameObject[floors];
 
         for (int f = 0; f < floors; f++)
-        {
             spawnedEntities[f] = new List<GameObject>();
-            patrolAreas[f] = new List<PatrolArea>();
-        }
 
         GenerateAllFloors();
         InstantiateAllFloors();
-        CreatePatrolAreas();
+        UpdateWalkableGrid();
         ChangeFloor(0);
 
         var inventory = player.GetComponent<PlayerInventory>();
-        if (inventory != null)
-        {
-            inventory.totalLevels = floors;
-        }
+        if (inventory != null) inventory.totalLevels = floors;
     }
 
     void Update()
@@ -95,10 +84,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
     int GetPlayerFloor()
     {
-        return Mathf.Clamp(
-            Mathf.RoundToInt(-player.position.y / floorHeight),
-            0, floors - 1
-        );
+        return Mathf.Clamp(Mathf.RoundToInt(-player.position.y / floorHeight), 0, floors - 1);
     }
 
     public void GoToNextFloor()
@@ -116,14 +102,11 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                 if (go) Destroy(go);
             spawnedEntities[currentFloor].Clear();
         }
-        PlaceEntitiesOnFloor(newFloor);
         currentFloor = newFloor;
     }
 
     void InstantiateAllFloors()
     {
-        navSurfaces = new NavMeshSurface[floors];
-
         for (int f = 0; f < floors; f++)
         {
             float yOff = -f * floorHeight;
@@ -131,15 +114,14 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
             GameObject floorContainer = new GameObject($"Floor_{f}");
             floorContainer.transform.parent = transform;
+            floorContainers[f] = floorContainer;
 
-            var floorObj = Instantiate(
+            Instantiate(
                 floorPrefab,
                 new Vector3((width - 1) * cellSize / 2f, yOff, (height - 1) * cellSize / 2f),
                 Quaternion.identity,
                 floorContainer.transform
             );
-
-            floorObj.transform.localScale = new Vector3(width * cellSize / 10f, 1, height * cellSize / 10f);
 
             for (int x = 0; x < width; x++)
             {
@@ -147,12 +129,10 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                 {
                     if (maze[f, x, y] == 1)
                     {
-                        var wall = Instantiate(
-                            wallPrefab,
+                        var wall = Instantiate(wallPrefab,
                             new Vector3(x * cellSize, yOff + cellSize / 2f, y * cellSize),
                             Quaternion.identity,
-                            floorContainer.transform
-                        );
+                            floorContainer.transform);
                         wall.transform.localScale = Vector3.one * cellSize;
                         wallObjects[f, x, y] = wall;
                     }
@@ -162,50 +142,36 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                     }
                 }
             }
-
-            NavMeshSurface surface = floorContainer.AddComponent<NavMeshSurface>();
-            surface.collectObjects = CollectObjects.Children;
-            surface.layerMask = LayerMask.GetMask("Floor");
-            surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
-            surface.overrideTileSize = true;
-            surface.tileSize = 32;
-
-            navSurfaces[f] = surface;
-            surface.BuildNavMesh();
         }
+        UpdateWalkableGrid();
+        OnMapUpdated?.Invoke();
     }
 
     void GenerateAllFloors()
     {
-        for (int f = 0; f < floors; f++)
-            GenerateMazeForFloor(f);
+        for (int f = 0; f < floors; f++) GenerateMazeForFloor(f);
 
         for (int a = 0; a < floors; a++)
             for (int b = a + 1; b < floors; b++)
-                if (FloorsAreIdentical(a, b))
-                    GenerateMazeForFloor(b);
+                if (FloorsAreIdentical(a, b)) GenerateMazeForFloor(b);
     }
 
     void GenerateMazeForFloor(int f)
     {
         int[,] grid = new int[width, height];
         for (int x = 0; x < width; x++)
-            for (int y = 0; y < height; y++)
-                grid[x, y] = 1;
+            for (int y = 0; y < height; y++) grid[x, y] = 1;
 
         CarveDFS(1, 1, grid, new System.Random());
-
         for (int x = 0; x < width; x++)
-            for (int y = 0; y < height; y++)
-                maze[f, x, y] = grid[x, y];
+            for (int y = 0; y < height; y++) maze[f, x, y] = grid[x, y];
     }
 
     bool FloorsAreIdentical(int a, int b)
     {
         for (int x = 0; x < width; x++)
             for (int y = 0; y < height; y++)
-                if (maze[a, x, y] != maze[b, x, y])
-                    return false;
+                if (maze[a, x, y] != maze[b, x, y]) return false;
         return true;
     }
 
@@ -216,7 +182,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         for (int i = 0; i < dirs.Count; i++)
         {
             int r = rng.Next(i, dirs.Count);
-            var tmp = dirs[i]; dirs[i] = dirs[r]; dirs[r] = tmp;
+            (dirs[i], dirs[r]) = (dirs[r], dirs[i]);
         }
         foreach (var d in dirs)
         {
@@ -226,56 +192,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                 grid[cx + d.x, cy + d.y] = 0;
                 CarveDFS(nx, ny, grid, rng);
             }
-        }
-    }
-
-    void PlaceEntitiesOnFloor(int floor)
-    {
-        var used = new HashSet<Vector2Int>();
-
-        if (floor == 0 && player != null)
-        {
-            var cell = freeCells[floor][Random.Range(0, freeCells[floor].Count)];
-            used.Add(cell);
-            float y0 = -floor * floorHeight + 0.1f;
-            player.position = new Vector3(cell.x * cellSize, y0, cell.y * cellSize);
-        }
-
-        int soulCount = 1;
-        int batteryCount = 2 + floor;
-        int enemyCount = Mathf.FloorToInt(freeCells[floor].Count * (0.03f + 0.02f * floor));
-
-        System.Action<GameObject> Spawn = go =>
-        {
-            var avail = new List<Vector2Int>();
-            foreach (var c in freeCells[floor])
-                if (!used.Contains(c))
-                    avail.Add(c);
-
-            if (avail.Count == 0) { Destroy(go); return; }
-
-            var choice = avail[Random.Range(0, avail.Count)];
-            used.Add(choice);
-            float y = -floor * floorHeight + 0.1f;
-            Vector3 spawnPos = new Vector3(choice.x * cellSize, y, choice.y * cellSize);
-
-            if (NavMesh.SamplePosition(spawnPos, out NavMeshHit hit, 3.0f, NavMesh.AllAreas))
-            {
-                go.transform.position = hit.position;
-                spawnedEntities[floor].Add(go);
-            }
-            else
-            {
-                Destroy(go);
-            }
-        };
-
-        for (int i = 0; i < soulCount; i++) Spawn(Instantiate(soulFragmentPrefab, transform));
-        for (int i = 0; i < batteryCount; i++) Spawn(Instantiate(batteryPrefab, transform));
-        for (int i = 0; i < enemyCount; i++)
-        {
-            var prefab = enemyPrefabs[Random.Range(0, enemyPrefabs.Count)];
-            Spawn(Instantiate(prefab, transform));
         }
     }
 
@@ -292,8 +208,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
             int[,] buf = new int[width, height];
             for (int x = 0; x < width; x++)
-                for (int y = 0; y < height; y++)
-                    buf[x, y] = 1;
+                for (int y = 0; y < height; y++) buf[x, y] = 1;
 
             CarveDFS(1, 1, buf, new System.Random());
 
@@ -303,19 +218,22 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                 {
                     if (f == pf && safe[x, y]) continue;
 
-                    bool was = maze[f, x, y] == 1;
-                    bool will = buf[x, y] == 1;
+                    bool wasWall = maze[f, x, y] == 1;
+                    bool willBeWall = buf[x, y] == 1;
 
-                    if (was != will)
+                    if (wasWall != willBeWall)
                     {
                         float yPos = -f * floorHeight + cellSize / 2f;
                         Vector3 pos = new Vector3(x * cellSize, yPos, y * cellSize);
 
-                        if (will)
+                        if (willBeWall)
                         {
-                            var w = Instantiate(wallPrefab, pos, Quaternion.identity, transform.Find($"Floor_{f}"));
-                            w.transform.localScale = Vector3.one * cellSize;
-                            wallObjects[f, x, y] = w;
+                            if (wallObjects[f, x, y] == null)
+                            {
+                                var w = Instantiate(wallPrefab, pos, Quaternion.identity, floorContainers[f].transform);
+                                w.transform.localScale = Vector3.one * cellSize;
+                                wallObjects[f, x, y] = w;
+                            }
                         }
                         else if (wallObjects[f, x, y] != null)
                         {
@@ -327,12 +245,9 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                     }
                 }
             }
-
-            if (navSurfaces[f] != null)
-            {
-                navSurfaces[f].BuildNavMesh();
-            }
         }
+        UpdateWalkableGrid();
+        OnMapUpdated?.Invoke();
     }
 
     void MarkSafeRegion(int sx, int sy, bool[,] safe)
@@ -360,53 +275,59 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                 }
             }
             depth++;
-            var tmp = q; q = next; next = tmp;
+            (q, next) = (next, q);
         }
     }
 
-    // Crear múltiples áreas de patrulla
-    void CreatePatrolAreas()
+    void UpdateWalkableGrid()
     {
-        int numAreas = 3; // cantidad de áreas por piso
-
         for (int f = 0; f < floors; f++)
         {
-            patrolAreas[f] = new List<PatrolArea>();
-            int cellsPerArea = Mathf.CeilToInt((float)freeCells[f].Count / numAreas);
-
-            for (int a = 0; a < numAreas; a++)
+            for (int x = 0; x < width; x++)
             {
-                PatrolArea area = new PatrolArea();
-                int start = a * cellsPerArea;
-                int end = Mathf.Min(start + cellsPerArea, freeCells[f].Count);
-
-                for (int i = start; i < end; i++)
+                for (int y = 0; y < height; y++)
                 {
-                    var cell = freeCells[f][i];
-                    var pointObj = new GameObject($"PatrolPoint_F{f}_A{a}_{cell.x}_{cell.y}");
-                    pointObj.transform.position = new Vector3(cell.x * cellSize, -f * floorHeight + 0.1f, cell.y * cellSize);
-                    area.patrolPoints.Add(pointObj.transform);
+                    walkableGrid[f, x, y] = (maze[f, x, y] == 0);
                 }
-
-                patrolAreas[f].Add(area);
             }
         }
     }
 
-    public PatrolArea GetPatrolArea(int floorIndex, int areaIndex)
-    {
-        if (patrolAreas == null || floorIndex < 0 || floorIndex >= patrolAreas.Length)
-            return null;
-        if (areaIndex < 0 || areaIndex >= patrolAreas[floorIndex].Count)
-            return null;
+    // ---------------- Métodos públicos ----------------
 
-        return patrolAreas[floorIndex][areaIndex];
+    public bool[,,] GetWalkableGrid()
+    {
+        var copy = new bool[floors, width, height];
+        Array.Copy(walkableGrid, copy, walkableGrid.Length);
+        return copy;
     }
 
-    public int GetTotalPatrolAreas()
+    public List<Vector2Int> GetFreeCells(int floor)
     {
-        if (patrolAreas == null || patrolAreas[0] == null)
-            return 0;
-        return patrolAreas[0].Count;
+        return new List<Vector2Int>(freeCells[floor]);
+    }
+
+    public Vector3 CellToWorld(Vector2Int cell, int floor)
+    {
+        return new Vector3(cell.x * cellSize, -floor * floorHeight + 0.1f, cell.y * cellSize);
+    }
+
+    public Vector2Int WorldToCell(Vector3 worldPos)
+    {
+        int x = Mathf.FloorToInt(worldPos.x / cellSize);
+        int y = Mathf.FloorToInt(worldPos.z / cellSize);
+        return new Vector2Int(x, y);
+    }
+
+    public bool IsWalkable(int floor, int x, int y)
+    {
+        if (floor < 0 || floor >= floors || x < 0 || x >= width || y < 0 || y >= height)
+            return false;
+        return walkableGrid[floor, x, y];
+    }
+
+    public int GetCurrentFloor()
+    {
+        return currentFloor;
     }
 }

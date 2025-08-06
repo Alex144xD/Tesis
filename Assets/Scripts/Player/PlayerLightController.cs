@@ -13,7 +13,6 @@ public class PlayerLightController : MonoBehaviour
     public float minRange = 5f;
     public float maxRange = 15f;
     public float flickerSpeed = 0.1f;
-    public float damagePerSecond = 10f; // Daño que causa a enemigos
 
     [Header("Batería")]
     public float maxBattery = 30f;
@@ -57,8 +56,7 @@ public class PlayerLightController : MonoBehaviour
             float t = 0.5f + 0.5f * Mathf.PerlinNoise(Time.time * flickerSpeed, 0f);
             lamp.range = Mathf.Lerp(minRange, maxRange, t);
 
-            // 🔥 Dañar enemigos iluminados
-            DamageEnemiesInLight();
+            AffectEnemiesInLight();
         }
 
         // Mover y rotar junto a la cámara
@@ -67,7 +65,7 @@ public class PlayerLightController : MonoBehaviour
         transform.rotation = playerCamera.transform.rotation;
     }
 
-    private void DamageEnemiesInLight()
+    private void AffectEnemiesInLight()
     {
         Collider[] hitColliders = Physics.OverlapSphere(transform.position, lamp.range);
         foreach (var hit in hitColliders)
@@ -77,13 +75,12 @@ public class PlayerLightController : MonoBehaviour
                 Vector3 dirToEnemy = (hit.transform.position - transform.position).normalized;
                 float angle = Vector3.Angle(transform.forward, dirToEnemy);
 
-                // Solo dañar si está dentro del cono de luz
                 if (angle < lamp.spotAngle / 2f)
                 {
                     EnemyFSM enemy = hit.GetComponent<EnemyFSM>();
                     if (enemy != null)
                     {
-                        enemy.TakeFlashlightDamage(damagePerSecond * Time.deltaTime);
+                        enemy.OnFlashlightHit();
                     }
                 }
             }
@@ -99,5 +96,10 @@ public class PlayerLightController : MonoBehaviour
     public float GetBatteryNormalized()
     {
         return currentBattery / maxBattery;
+    }
+
+    public bool IsOn()
+    {
+        return isOn;
     }
 }

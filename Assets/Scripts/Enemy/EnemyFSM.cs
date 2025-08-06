@@ -1,67 +1,60 @@
 ﻿using UnityEngine;
-using UnityEngine.AI;
 using System.Collections.Generic;
 
+[RequireComponent(typeof(CharacterController))]
 public class EnemyFSM : MonoBehaviour
 {
-    public enum EnemyState { Patrol, Chase, Attack }
+    public enum EnemyState { Idle, Patrol, Chase, Attack, Flee }
     private EnemyState currentState;
-
-    private NavMeshAgent agent;
-    private Animator animator;
-    private Transform player;
 
     [Header("Detección")]
     public float detectionRange = 6f;
-    public float viewAngle = 120f;
     public float attackRange = 1.5f;
-    public LayerMask playerLayer;
-
-    [Header("Patrulla")]
-    public int patrolAreaIndex = 0;
-    private List<Transform> patrolPoints;
-    private int currentPoint = -1;
-    private float repeatTimer = 0f;
+    public float recalculatePathInterval = 1.5f;
 
     [Header("Velocidades")]
     public float patrolSpeed = 2f;
-    public float chaseSpeed = 4f;
+    public float chaseSpeed = 3.5f;
 
     [Header("Daño")]
     public float attackDamage = 10f;
     public float attackCooldown = 1f;
-    private float lastAttackTime = 0f;
 
-    [Header("Chase Timeout")]
-    public float maxChaseTime = 10f;
-    private float chaseTimer = 0f;
+    public int floorIndex = 0;
 
-    [Header("Anti-atascos")]
-    public float stuckThreshold = 0.1f;
-    public float stuckCheckInterval = 2f;
-    private float stuckTimer = 0f;
-    private Vector3 lastPosition;
+    private static Transform player;
+    private CharacterController controller;
+    private Animator animator;
+    private List<Vector3> currentPath;
+    private int pathIndex;
+    private float recalcTimer;
+    private float lastAttackTime;
 
-    void Awake()
-    {
-        agent = GetComponent<NavMeshAgent>();
-        animator = GetComponent<Animator>();
-        player = GameObject.FindGameObjectWithTag("Player")?.transform;
-    }
+    // Patrullaje compartido
+    private static HashSet<Vector2Int> occupiedPatrolCells = new HashSet<Vector2Int>();
+    private Vector2Int reservedCell;
 
     void Start()
     {
-        currentState = EnemyState.Patrol;
-        patrolAreaIndex = GetEnemyAssignedArea();
-        AssignPatrolPoints();
-        GoToNextPatrolPoint();
-        lastPosition = transform.position;
+        controller = GetComponent<CharacterController>();
+        animator = GetComponent<Animator>();
+
+        if (player == null)
+            player = GameObject.FindGameObjectWithTag("Player").transform;
+
+        currentState = EnemyState.Idle;
+        MultiFloorDynamicMapManager.Instance.OnMapUpdated += OnMapChanged;
+
+        Invoke(nameof(StartPatrolling), 1f);
     }
 
     void Update()
     {
         switch (currentState)
         {
+            case EnemyState.Idle:
+                Idle();
+                break;
             case EnemyState.Patrol:
                 Patrol();
                 break;
@@ -71,138 +64,216 @@ public class EnemyFSM : MonoBehaviour
             case EnemyState.Attack:
                 Attack();
                 break;
+            case EnemyState.Flee:
+                Flee();
+                break;
         }
-        CheckStuck();
     }
 
-    int GetEnemyAssignedArea()
+    // ---------------- Estados ----------------
+
+    void Idle()
     {
-        int totalAreas = MultiFloorDynamicMapManager.Instance.GetTotalPatrolAreas();
-        int enemyIndex = transform.GetSiblingIndex();
-        return totalAreas > 0 ? enemyIndex % totalAreas : 0;
+        SetAnimation("Idle");
+        if (Vector3.Distance(transform.position, player.position) <= detectionRange)
+            currentState = EnemyState.Chase;
     }
 
     void Patrol()
     {
-        agent.speed = patrolSpeed;
-        animator.SetBool("isWalking", true);
-        animator.SetBool("isRunning", false);
+        SetAnimation("Walk");
+        MoveAlongPath(patrolSpeed);
 
-        if (!agent.pathPending && agent.remainingDistance < 0.5f)
+        if (Vector3.Distance(transform.position, player.position) <= detectionRange)
         {
-            repeatTimer += Time.deltaTime;
-            if (repeatTimer >= 2f)
-            {
-                GoToNextPatrolPoint();
-                repeatTimer = 0f;
-            }
+            ClearReservedCell();
+            currentState = EnemyState.Chase;
+            recalcTimer = recalculatePathInterval;
         }
 
-        if (PlayerInSight())
+        if (ReachedPathEnd())
         {
-            currentState = EnemyState.Chase;
-            chaseTimer = 0f;
+            ClearReservedCell();
+            GoToRandomPatrolPoint();
         }
     }
 
     void Chase()
     {
-        agent.speed = chaseSpeed;
-        animator.SetBool("isWalking", false);
-        animator.SetBool("isRunning", true);
+        SetAnimation("Run");
+        recalcTimer += Time.deltaTime;
 
-        if (player != null)
-            agent.SetDestination(player.position);
-
-        chaseTimer += Time.deltaTime;
-
-        if (Vector3.Distance(transform.position, player.position) <= attackRange)
+        if (recalcTimer >= recalculatePathInterval)
         {
-            currentState = EnemyState.Attack;
+            currentPath = PathfindingBFS.Instance.FindPath(floorIndex, transform.position, player.position);
+            pathIndex = 0;
+            recalcTimer = 0f;
         }
-        else if (!PlayerInSight() || chaseTimer >= maxChaseTime)
+
+        MoveAlongPath(chaseSpeed);
+
+        float dist = Vector3.Distance(transform.position, player.position);
+        if (dist <= attackRange)
+            currentState = EnemyState.Attack;
+        else if (dist > detectionRange * 1.5f)
         {
             currentState = EnemyState.Patrol;
-            GoToNextPatrolPoint();
+            GoToRandomPatrolPoint();
         }
     }
 
     void Attack()
     {
-        animator.SetTrigger("attack");
-        agent.ResetPath();
+        SetAnimation("Attack");
 
-        if (player != null && Vector3.Distance(transform.position, player.position) <= attackRange)
+        Vector3 direction = (player.position - transform.position).normalized;
+        controller.SimpleMove(direction * chaseSpeed * 0.5f);
+
+        if (Time.time >= lastAttackTime + attackCooldown)
         {
-            if (Time.time >= lastAttackTime + attackCooldown)
-            {
-                var playerHealth = player.GetComponent<PlayerHealth>();
-                if (playerHealth != null)
-                {
-                    playerHealth.TakeDamage(attackDamage);
-                }
-                lastAttackTime = Time.time;
-            }
+            var playerHealth = player.GetComponent<PlayerHealth>();
+            if (playerHealth != null)
+                playerHealth.TakeDamage(attackDamage);
+
+            lastAttackTime = Time.time;
         }
 
         if (Vector3.Distance(transform.position, player.position) > attackRange)
-        {
             currentState = EnemyState.Chase;
+    }
+
+    void Flee()
+    {
+        SetAnimation("Run");
+        MoveAlongPath(chaseSpeed * 1.3f);
+
+        if (Vector3.Distance(transform.position, player.position) > detectionRange * 2f)
+        {
+            currentState = EnemyState.Patrol;
+            GoToRandomPatrolPoint();
         }
     }
 
-    bool PlayerInSight()
+    // ---------------- Movimiento ----------------
+
+    void MoveAlongPath(float speed)
     {
-        if (player == null) return false;
+        if (currentPath == null || pathIndex >= currentPath.Count) return;
 
-        Vector3 dirToPlayer = (player.position - transform.position).normalized;
-        float distance = Vector3.Distance(transform.position, player.position);
+        Vector3 targetPos = currentPath[pathIndex];
+        Vector3 direction = (targetPos - transform.position).normalized;
 
-        if (distance <= detectionRange)
+        controller.SimpleMove(direction * speed);
+
+        if (Vector3.Distance(transform.position, targetPos) < 0.2f)
+            pathIndex++;
+    }
+
+    bool ReachedPathEnd()
+    {
+        return currentPath == null || pathIndex >= currentPath.Count;
+    }
+
+    void GoToRandomPatrolPoint()
+    {
+        var freeCells = MultiFloorDynamicMapManager.Instance.GetFreeCells(floorIndex);
+        if (freeCells.Count == 0) return;
+
+        freeCells.RemoveAll(cell => occupiedPatrolCells.Contains(cell));
+        if (freeCells.Count == 0) return;
+
+        reservedCell = freeCells[Random.Range(0, freeCells.Count)];
+        occupiedPatrolCells.Add(reservedCell);
+
+        Vector3 patrolPos = MultiFloorDynamicMapManager.Instance.CellToWorld(reservedCell, floorIndex);
+        currentPath = PathfindingBFS.Instance.FindPath(floorIndex, transform.position, patrolPos);
+        pathIndex = 0;
+        currentState = EnemyState.Patrol;
+    }
+
+    void StartPatrolling()
+    {
+        GoToRandomPatrolPoint();
+    }
+
+    void ClearReservedCell()
+    {
+        if (reservedCell != Vector2Int.zero)
         {
-            float angle = Vector3.Angle(transform.forward, dirToPlayer);
-            if (angle < viewAngle / 2f)
+            occupiedPatrolCells.Remove(reservedCell);
+            reservedCell = Vector2Int.zero;
+        }
+    }
+
+    private void OnMapChanged()
+    {
+        if (currentState == EnemyState.Chase)
+        {
+            currentPath = PathfindingBFS.Instance.FindPath(floorIndex, transform.position, player.position);
+        }
+        else if (currentState == EnemyState.Patrol && currentPath != null && pathIndex < currentPath.Count)
+        {
+            currentPath = PathfindingBFS.Instance.FindPath(floorIndex, transform.position, currentPath[pathIndex]);
+        }
+        else if (currentState == EnemyState.Flee && currentPath != null && pathIndex < currentPath.Count)
+        {
+            currentPath = PathfindingBFS.Instance.FindPath(floorIndex, transform.position, currentPath[pathIndex]);
+        }
+        pathIndex = 0;
+    }
+
+    private void OnDestroy()
+    {
+        ClearReservedCell();
+        if (MultiFloorDynamicMapManager.Instance != null)
+            MultiFloorDynamicMapManager.Instance.OnMapUpdated -= OnMapChanged;
+    }
+
+    // ---------------- Linterna ----------------
+
+    public void OnFlashlightHit()
+    {
+        if (currentState != EnemyState.Flee)
+        {
+            ClearReservedCell();
+            currentState = EnemyState.Flee;
+            ChooseFleeDestination();
+        }
+    }
+
+    private void ChooseFleeDestination()
+    {
+        var freeCells = MultiFloorDynamicMapManager.Instance.GetFreeCells(floorIndex);
+        if (freeCells.Count == 0) return;
+
+        Vector2Int farthestCell = freeCells[0];
+        float maxDist = 0f;
+
+        foreach (var cell in freeCells)
+        {
+            Vector3 cellPos = MultiFloorDynamicMapManager.Instance.CellToWorld(cell, floorIndex);
+            float dist = Vector3.Distance(cellPos, player.position);
+            if (dist > maxDist)
             {
-                return true;
+                maxDist = dist;
+                farthestCell = cell;
             }
         }
-        return false;
+
+        Vector3 fleePos = MultiFloorDynamicMapManager.Instance.CellToWorld(farthestCell, floorIndex);
+        currentPath = PathfindingBFS.Instance.FindPath(floorIndex, transform.position, fleePos);
+        pathIndex = 0;
     }
 
-    void AssignPatrolPoints()
-    {
-        var patrolArea = MultiFloorDynamicMapManager.Instance.GetPatrolArea(0, patrolAreaIndex);
-        if (patrolArea != null)
-            patrolPoints = patrolArea.patrolPoints;
-        else
-            patrolPoints = new List<Transform>();
-    }
+    // ---------------- Animaciones ----------------
 
-    void GoToNextPatrolPoint()
+    void SetAnimation(string state)
     {
-        if (patrolPoints == null || patrolPoints.Count == 0) return;
+        if (animator == null) return;
 
-        currentPoint = (currentPoint + 1) % patrolPoints.Count;
-        agent.SetDestination(patrolPoints[currentPoint].position);
-    }
-
-    void CheckStuck()
-    {
-        stuckTimer += Time.deltaTime;
-        if (stuckTimer >= stuckCheckInterval)
-        {
-            float moved = Vector3.Distance(transform.position, lastPosition);
-            if (moved < stuckThreshold)
-            {
-                GoToNextPatrolPoint();
-            }
-            lastPosition = transform.position;
-            stuckTimer = 0f;
-        }
-    }
-
-    public void TakeFlashlightDamage(float damage = 10f)
-    {
-        Debug.Log($"{gameObject.name} recibió {damage} de daño de la linterna.");
+        animator.SetBool("Idle", state == "Idle");
+        animator.SetBool("Walk", state == "Walk");
+        animator.SetBool("Run", state == "Run");
+        animator.SetBool("Attack", state == "Attack");
     }
 }

@@ -758,7 +758,6 @@ MonoBehaviour:
   minRange: 5
   maxRange: 15
   flickerSpeed: 0.1
-  damagePerSecond: 10
   maxBattery: 30
   drainRate: 1
   toggleKey: 102
@@ -941,6 +940,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   playerMovement: {fileID: 393803995}
   staminaSlider: {fileID: 958554717}
+  hudRoot: {fileID: 958554715}
 --- !u!114 &393803995
 MonoBehaviour:
   m_ObjectHideFlags: 0

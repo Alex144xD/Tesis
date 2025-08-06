@@ -19,6 +19,9 @@ public class GameManager : MonoBehaviour
     [Header("Controles")]
     public KeyCode pauseKey = KeyCode.Escape;
 
+    //  Modo personalizado
+    private bool inCustomMode = false;
+
     private void Awake()
     {
         if (Instance == null)
@@ -103,5 +106,17 @@ public class GameManager : MonoBehaviour
     {
         isPaused = true;
         Time.timeScale = 0f;
+    }
+
+    // Activar modo personalizado
+    public void StartCustomMode()
+    {
+        inCustomMode = true;
+    }
+
+    // Verificar si estamos en modo personalizado
+    public bool IsInCustomMode()
+    {
+        return inCustomMode;
     }
 }
