@@ -9,50 +9,89 @@ public class UIManager : MonoBehaviour
     public GameObject defeatScreen;
     public GameObject pauseScreen;
 
-    private void Awake()
+    [Header("HUD (opcional)")]
+    public GameObject hudRoot; // puede ser null
+
+    void Awake()
     {
         if (Instance == null)
         {
             Instance = this;
             DontDestroyOnLoad(gameObject);
         }
-        else
-        {
-            Destroy(gameObject);
-        }
+        else { Destroy(gameObject); return; }
+
+        SafeHide(victoryScreen);
+        SafeHide(defeatScreen);
+        SafeHide(pauseScreen);
+        if (hudRoot) hudRoot.SetActive(true);
     }
 
     public void ShowVictoryScreen()
     {
-        HideAllScreens();
-        if (victoryScreen != null)
-            victoryScreen.SetActive(true);
+        HideAllExcept(victoryScreen);
+        if (hudRoot) hudRoot.SetActive(false);
+        ShowWithPop(victoryScreen);
     }
 
     public void ShowDefeatScreen()
     {
-        HideAllScreens();
-        if (defeatScreen != null)
-            defeatScreen.SetActive(true);
+        HideAllExcept(defeatScreen);
+        if (hudRoot) hudRoot.SetActive(false);
+        ShowWithPop(defeatScreen);
     }
 
     public void ShowPauseScreen()
     {
-        HideAllScreens();
-        if (pauseScreen != null)
-            pauseScreen.SetActive(true);
+        HideAllExcept(pauseScreen);
+        if (hudRoot) hudRoot.SetActive(false);
+        ShowWithPop(pauseScreen);
     }
 
-    public void HidePauseScreen()
+    public void HidePauseScreen()   // <-- existe y es PUBLIC
     {
-        if (pauseScreen != null)
-            pauseScreen.SetActive(false);
+        HidePanel(pauseScreen);
+        if (hudRoot) hudRoot.SetActive(true);
     }
 
-    private void HideAllScreens()
+    // -------- Helpers --------
+    void HideAllExcept(GameObject except)
     {
-        if (victoryScreen != null) victoryScreen.SetActive(false);
-        if (defeatScreen != null) defeatScreen.SetActive(false);
-        if (pauseScreen != null) pauseScreen.SetActive(false);
+        if (victoryScreen && victoryScreen != except) HidePanel(victoryScreen);
+        if (defeatScreen && defeatScreen != except) HidePanel(defeatScreen);
+        if (pauseScreen && pauseScreen != except) HidePanel(pauseScreen);
+    }
+
+    void ShowWithPop(GameObject panel)
+    {
+        if (!panel) { Debug.LogWarning("Panel nulo en ShowWithPop"); return; }
+
+        // Fuerza activo antes de animar
+        panel.SetActive(true);
+
+        var cg = panel.GetComponent<CanvasGroup>();
+        if (!cg) cg = panel.AddComponent<CanvasGroup>();
+        cg.alpha = 0f;
+
+        var pop = panel.GetComponent<UIPopIn>();
+        if (!pop) pop = panel.AddComponent<UIPopIn>();
+        pop.Show();
+    }
+
+    void HidePanel(GameObject panel)
+    {
+        if (!panel) return;
+        var pop = panel.GetComponent<UIPopIn>();
+        if (pop) pop.HideImmediate();
+        else panel.SetActive(false);
+    }
+
+    void SafeHide(GameObject panel)
+    {
+        if (!panel) return;
+        var cg = panel.GetComponent<CanvasGroup>();
+        if (!cg) cg = panel.AddComponent<CanvasGroup>();
+        cg.alpha = 0f;
+        panel.SetActive(false);
     }
 }

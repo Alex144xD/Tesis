@@ -73,16 +73,29 @@ public class GameManager : MonoBehaviour
 
     public void PauseGame()
     {
+        if (isPaused) return; // evita doble disparo
         isPaused = true;
         Time.timeScale = 0f;
-        UIManager.Instance.ShowPauseScreen();
+
+        // Cursor visible y libre
+        Cursor.visible = true;
+        Cursor.lockState = CursorLockMode.None;
+
+        if (UIManager.Instance) UIManager.Instance.ShowPauseScreen();
+        else Debug.LogWarning("UIManager no encontrado al pausar.");
     }
 
     public void ResumeGame()
     {
+        if (!isPaused) return;
         isPaused = false;
         Time.timeScale = 1f;
-        UIManager.Instance.HidePauseScreen();
+
+        // Cursor oculto/bloqueado (si así juegas normalmente)
+        Cursor.visible = false;
+        Cursor.lockState = CursorLockMode.Locked;
+
+        if (UIManager.Instance) UIManager.Instance.HidePauseScreen();
     }
 
     public void RestartGame()
