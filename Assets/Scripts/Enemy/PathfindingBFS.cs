@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using System.Collections.Generic;
 
 public class PathfindingBFS : MonoBehaviour
@@ -14,15 +14,16 @@ public class PathfindingBFS : MonoBehaviour
     {
         var map = MultiFloorDynamicMapManager.Instance;
         bool[,,] walkableGrid = map.GetWalkableGrid();
+        bool[,,] sanctuary = map.GetSanctuaryGrid(); // ← evitar estas celdas
 
         Vector2Int start = WorldToGrid(startPos);
         Vector2Int target = WorldToGrid(targetPos);
 
-        if (!IsWalkable(map, walkableGrid, floor, start))
-            start = FindNearestWalkable(map, walkableGrid, floor, start);
+        if (!IsWalkableAndSafe(map, walkableGrid, sanctuary, floor, start))
+            start = FindNearestWalkableAndSafe(map, walkableGrid, sanctuary, floor, start);
 
-        if (!IsWalkable(map, walkableGrid, floor, target))
-            target = FindNearestWalkable(map, walkableGrid, floor, target);
+        if (!IsWalkableAndSafe(map, walkableGrid, sanctuary, floor, target))
+            target = FindNearestWalkableAndSafe(map, walkableGrid, sanctuary, floor, target);
 
         Queue<Vector2Int> queue = new Queue<Vector2Int>();
         Dictionary<Vector2Int, Vector2Int> cameFrom = new Dictionary<Vector2Int, Vector2Int>();
@@ -45,6 +46,7 @@ public class PathfindingBFS : MonoBehaviour
 
                 if (nx >= 0 && nx < map.width && ny >= 0 && ny < map.height &&
                     walkableGrid[floor, nx, ny] &&
+                    !sanctuary[floor, nx, ny] &&               // ← BLOQUEA santuario
                     !cameFrom.ContainsKey(next))
                 {
                     queue.Enqueue(next);
@@ -87,14 +89,15 @@ public class PathfindingBFS : MonoBehaviour
         );
     }
 
-    private bool IsWalkable(MultiFloorDynamicMapManager map, bool[,,] grid, int floor, Vector2Int cell)
+    private bool IsWalkableAndSafe(MultiFloorDynamicMapManager map, bool[,,] grid, bool[,,] sanctuary, int floor, Vector2Int cell)
     {
         return cell.x >= 0 && cell.x < map.width &&
                cell.y >= 0 && cell.y < map.height &&
-               grid[floor, cell.x, cell.y];
+               grid[floor, cell.x, cell.y] &&
+               !sanctuary[floor, cell.x, cell.y];
     }
 
-    private Vector2Int FindNearestWalkable(MultiFloorDynamicMapManager map, bool[,,] grid, int floor, Vector2Int origin)
+    private Vector2Int FindNearestWalkableAndSafe(MultiFloorDynamicMapManager map, bool[,,] grid, bool[,,] sanctuary, int floor, Vector2Int origin)
     {
         Queue<Vector2Int> queue = new Queue<Vector2Int>();
         HashSet<Vector2Int> visited = new HashSet<Vector2Int>();
@@ -108,7 +111,7 @@ public class PathfindingBFS : MonoBehaviour
         {
             var current = queue.Dequeue();
 
-            if (IsWalkable(map, grid, floor, current))
+            if (IsWalkableAndSafe(map, grid, sanctuary, floor, current))
                 return current;
 
             for (int i = 0; i < 4; i++)
@@ -124,6 +127,6 @@ public class PathfindingBFS : MonoBehaviour
             }
         }
 
-        return origin; // No walkable found, return original
+        return origin; // fallback si no encuentra nada
     }
 }

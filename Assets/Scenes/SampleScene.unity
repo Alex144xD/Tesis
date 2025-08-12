@@ -685,6 +685,10 @@ MonoBehaviour:
   - {fileID: 2547632407910942000, guid: af9f138ca1214ae41beb955d1406704e, type: 3}
   - {fileID: 2547632407910942000, guid: af9f138ca1214ae41beb955d1406704e, type: 3}
   - {fileID: 2547632407910942000, guid: af9f138ca1214ae41beb955d1406704e, type: 3}
+  torchPrefab: {fileID: 561048265046567462, guid: a8ad31da5d47353469f82df604821ab0, type: 3}
+  torchesPerFloor: 6
+  batteriesPerFloor: 0
+  fragmentsPerFloor: 0
   regenerationInterval: 30
   safeRadiusCells: 5
   player: {fileID: 393803999}
