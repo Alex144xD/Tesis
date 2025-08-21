@@ -2,28 +2,29 @@
 
 public class BatteryPickup : MonoBehaviour
 {
-    [Header("Recarga")]
+    [Header("Tipo y recarga")]
+    public BatteryType type = BatteryType.Green;
     public float rechargeAmount = 10f;
 
-    private bool isCollected = false;
+    private bool collected = false;
 
-    private void OnTriggerEnter(Collider other)
+    void OnTriggerEnter(Collider other)
     {
-        if (isCollected) return; // Evitar doble recogida
+        if (collected) return;
+        if (!other.CompareTag("Player")) return;
 
-        if (other.CompareTag("Player"))
+        var system = other.GetComponent<PlayerBatterySystem>();
+        if (system == null)
         {
-            PlayerLightController lightController = other.GetComponentInChildren<PlayerLightController>();
-            if (lightController != null)
-            {
-                lightController.RechargeBattery(rechargeAmount);
-                isCollected = true;
-
-                // 🔊 TODO: reproducir sonido o efecto visual
-                // AudioSource.PlayClipAtPoint(pickupSound, transform.position);
-
-                Destroy(gameObject);
-            }
+            var lightCtrl = other.GetComponentInChildren<PlayerLightController>();
+            if (lightCtrl != null) lightCtrl.RechargeBattery(rechargeAmount);
         }
+        else
+        {
+            system.Recharge(type, rechargeAmount);
+        }
+
+        collected = true;
+        Destroy(gameObject);
     }
 }

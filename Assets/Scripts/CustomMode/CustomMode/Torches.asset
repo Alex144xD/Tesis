@@ -1,0 +1,40 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f184eefd3806f2140a41f73b08f34cf2, type: 3}
+  m_Name: Torches
+  m_EditorClassIdentifier: 
+  narrative: "\u201CLa Humanidad no es ciega, decide cuanta luz y bondad hay en ella.\u201D"
+  options:
+  - text: "\u201CSin ron y tripulaci\xF3n no se puede saquear.\u201D"
+    effects:
+      enemyStat: 0
+      enemyDensity: 0
+      batteryDrain: 0
+      batteryDensity: 0
+      fragmentDensity: 0
+      floorsDelta: 0
+      torchesOnlyStartFew: 0
+      enemy2DrainsBattery: 0
+      enemy3ResistsLight: 0
+    next: {fileID: 11400000, guid: d71946ddaa6addf42ac89c95aecc751a, type: 2}
+  - text: "\u201CYo solo, podr\xEDa hundir hasta el galen m\xE1s poderos..\u201D"
+    effects:
+      enemyStat: 0
+      enemyDensity: 0
+      batteryDrain: 0
+      batteryDensity: 0
+      fragmentDensity: 0
+      floorsDelta: 0
+      torchesOnlyStartFew: 0
+      enemy2DrainsBattery: 0
+      enemy3ResistsLight: 0
+    next: {fileID: 11400000, guid: d71946ddaa6addf42ac89c95aecc751a, type: 2}

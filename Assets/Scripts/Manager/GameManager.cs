@@ -19,15 +19,15 @@ public class GameManager : MonoBehaviour
     [Header("Controles")]
     public KeyCode pauseKey = KeyCode.Escape;
 
-    //  Modo personalizado
     private bool inCustomMode = false;
 
-    private void Awake()
+    void Awake()
     {
         if (Instance == null)
         {
             Instance = this;
             DontDestroyOnLoad(gameObject);
+            SceneManager.sceneLoaded += OnSceneLoaded_Reset;
         }
         else
         {
@@ -35,67 +35,57 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    private void Update()
+    void Update()
     {
-        // ❌ Evitar pausa si el jugador está muerto o ganó
         if (Input.GetKeyDown(pauseKey) && !isGameOver && !isVictory)
         {
-            if (!isPaused)
-                PauseGame();
-            else
-                ResumeGame();
+            if (!isPaused) PauseGame();
+            else ResumeGame();
         }
     }
 
     public void PlayerWin()
     {
         if (isVictory) return;
-
         isVictory = true;
-        Debug.Log("Juego ganado");
-
         onVictory?.Invoke();
-        UIManager.Instance.ShowVictoryScreen();
+
+        if (UIManager.Instance) UIManager.Instance.ShowVictoryScreen();
         FreezeGame();
+        ShowCursor(true);
     }
 
     public void PlayerLose()
     {
         if (isGameOver) return;
-
         isGameOver = true;
-        Debug.Log("Jugador ha muerto");
-
         onDefeat?.Invoke();
-        UIManager.Instance.ShowDefeatScreen();
+
+        if (UIManager.Instance) UIManager.Instance.ShowDefeatScreen();
         FreezeGame();
+        ShowCursor(true);
     }
 
     public void PauseGame()
     {
-        if (isPaused) return; // evita doble disparo
+        if (isPaused) return;
         isPaused = true;
-        Time.timeScale = 0f;
-
-        // Cursor visible y libre
-        Cursor.visible = true;
-        Cursor.lockState = CursorLockMode.None;
 
         if (UIManager.Instance) UIManager.Instance.ShowPauseScreen();
-        else Debug.LogWarning("UIManager no encontrado al pausar.");
+
+        Time.timeScale = 0f;
+        ShowCursor(true);
     }
 
     public void ResumeGame()
     {
         if (!isPaused) return;
         isPaused = false;
+
         Time.timeScale = 1f;
 
-        // Cursor oculto/bloqueado (si así juegas normalmente)
-        Cursor.visible = false;
-        Cursor.lockState = CursorLockMode.Locked;
-
         if (UIManager.Instance) UIManager.Instance.HidePauseScreen();
+        ShowCursor(false);
     }
 
     public void RestartGame()
@@ -106,12 +96,12 @@ public class GameManager : MonoBehaviour
         isVictory = false;
 
         onGameRestart?.Invoke();
-        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+        Scene current = SceneManager.GetActiveScene();
+        SceneManager.LoadScene(current.name);
     }
 
     public void QuitGame()
     {
-        Debug.Log("Saliendo del juego...");
         Application.Quit();
     }
 
@@ -121,15 +111,21 @@ public class GameManager : MonoBehaviour
         Time.timeScale = 0f;
     }
 
-    // Activar modo personalizado
-    public void StartCustomMode()
+    public void StartCustomMode() => inCustomMode = true;
+    public bool IsInCustomMode() => inCustomMode;
+
+    void ShowCursor(bool visible)
     {
-        inCustomMode = true;
+        Cursor.visible = visible;
+        Cursor.lockState = visible ? CursorLockMode.None : CursorLockMode.Locked;
     }
 
-    // Verificar si estamos en modo personalizado
-    public bool IsInCustomMode()
+    void OnSceneLoaded_Reset(Scene s, LoadSceneMode mode)
     {
-        return inCustomMode;
+        if (!isVictory && !isGameOver)
+        {
+            Time.timeScale = isPaused ? 0f : 1f;
+            ShowCursor(isPaused);
+        }
     }
 }

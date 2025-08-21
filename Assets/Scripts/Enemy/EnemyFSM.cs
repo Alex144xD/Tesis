@@ -5,6 +5,11 @@ using System.Collections.Generic;
 public class EnemyFSM : MonoBehaviour
 {
     public enum EnemyState { Idle, Patrol, Chase, Attack, Flee }
+    public enum EnemyKind { Basic, Heavy, Runner }
+
+    [Header("Tipo de enemigo")]
+    public EnemyKind kind = EnemyKind.Basic;
+
     private EnemyState currentState;
 
     [Header("Detección")]
@@ -21,8 +26,8 @@ public class EnemyFSM : MonoBehaviour
     public float attackCooldown = 1f;
 
     [Header("Anti-atascos")]
-    public float stuckRecalcTime = 1.5f;
-    public float minMoveSqr = 0.01f; // ~0.1m
+    public float stuckRecalcTime = 1.2f;
+    public float minMoveSqr = 0.01f;
 
     public int floorIndex = 0;
 
@@ -39,10 +44,15 @@ public class EnemyFSM : MonoBehaviour
 
     private MultiFloorDynamicMapManager map;
 
-    // Patrullaje compartido (por piso)
     private static HashSet<Vector3Int> occupiedPatrolCells = new HashSet<Vector3Int>();
     private Vector2Int reservedCell;
     private bool hasReservedCell = false;
+
+    [Header("Opcional: LOS")]
+    public bool requireLineOfSightToChase = false;
+    public LayerMask losObstacles;
+    private float onMapChangedCooldown = 0f;
+    public float onMapChangedMinInterval = 0.15f;
 
     void Start()
     {
@@ -56,7 +66,6 @@ public class EnemyFSM : MonoBehaviour
             if (p) player = p.transform;
         }
 
-        // Asegurar piso correcto al inicio
         floorIndex = Mathf.Clamp(Mathf.RoundToInt(-transform.position.y / map.floorHeight), 0, map.floors - 1);
 
         currentState = EnemyState.Idle;
@@ -68,9 +77,9 @@ public class EnemyFSM : MonoBehaviour
 
     void LateUpdate()
     {
-        // Si cambia de piso, actualízalo
         int fNow = Mathf.Clamp(Mathf.RoundToInt(-transform.position.y / map.floorHeight), 0, map.floors - 1);
         if (fNow != floorIndex) floorIndex = fNow;
+        if (onMapChangedCooldown > 0f) onMapChangedCooldown -= Time.deltaTime;
     }
 
     void Update()
@@ -84,7 +93,6 @@ public class EnemyFSM : MonoBehaviour
             case EnemyState.Flee: Flee(); break;
         }
 
-        // Anti-atascos genérico
         stuckTimer += Time.deltaTime;
         if ((transform.position - lastPos).sqrMagnitude > minMoveSqr)
         {
@@ -93,11 +101,7 @@ public class EnemyFSM : MonoBehaviour
         }
         else if (stuckTimer > stuckRecalcTime)
         {
-            ForceRecalcToCurrentTarget();
-            // micro nudge lateral
-            Vector3 toPlayer = (player ? (player.position - transform.position) : Vector3.forward);
-            Vector3 right = Vector3.Cross(Vector3.up, toPlayer).normalized;
-            controller.SimpleMove(right * 0.5f);
+            RecoverFromStuck();
             stuckTimer = 0f;
         }
     }
@@ -107,8 +111,7 @@ public class EnemyFSM : MonoBehaviour
     void Idle()
     {
         SetAnimation("Idle");
-        if (player && Vector3.Distance(transform.position, player.position) <= detectionRange)
-            currentState = EnemyState.Chase;
+        if (PlayerInDetection()) currentState = EnemyState.Chase;
     }
 
     void Patrol()
@@ -116,11 +119,11 @@ public class EnemyFSM : MonoBehaviour
         SetAnimation("Walk");
         MoveAlongPath(patrolSpeed);
 
-        if (player && Vector3.Distance(transform.position, player.position) <= detectionRange)
+        if (PlayerInDetection())
         {
             ClearReservedCell();
             currentState = EnemyState.Chase;
-            recalcTimer = recalculatePathInterval; // fuerza recalc inmediato
+            recalcTimer = recalculatePathInterval;
         }
 
         if (ReachedPathEnd())
@@ -135,7 +138,10 @@ public class EnemyFSM : MonoBehaviour
         SetAnimation("Run");
         recalcTimer += Time.deltaTime;
 
-        if (recalcTimer >= recalculatePathInterval || ReachedPathEnd())
+        if (ReachedPathEnd())
+            recalcTimer = recalculatePathInterval;
+
+        if (recalcTimer >= recalculatePathInterval)
         {
             RecalcPathTo(player ? player.position : transform.position);
         }
@@ -146,7 +152,7 @@ public class EnemyFSM : MonoBehaviour
         float dist = Vector3.Distance(transform.position, player.position);
         if (dist <= attackRange)
             currentState = EnemyState.Attack;
-        else if (dist > detectionRange * 1.5f)
+        else if (!PlayerInDetection())
         {
             currentState = EnemyState.Patrol;
             GoToRandomPatrolPoint();
@@ -187,7 +193,6 @@ public class EnemyFSM : MonoBehaviour
         }
         else if (ReachedPathEnd())
         {
-            // Si terminó la ruta pero aún está cerca, re-elegir otro destino lejano
             ChooseFleeDestination();
         }
     }
@@ -196,58 +201,49 @@ public class EnemyFSM : MonoBehaviour
 
     void MoveAlongPath(float speed)
     {
-        if (currentPath == null || pathIndex >= currentPath.Count) return;
-
-        Vector3 targetPos = currentPath[pathIndex];
-        // Mantener altura para no pelear con SimpleMove/gravedad
-        targetPos.y = transform.position.y;
-
-        Vector3 direction = (targetPos - transform.position);
-        direction.y = 0f;
-
-        if (direction.sqrMagnitude > 0.0001f)
+        if (currentPath == null || pathIndex >= currentPath.Count)
         {
-            controller.SimpleMove(direction.normalized * speed);
-        }
-
-        if (Vector3.Distance(transform.position, targetPos) < 0.25f)
-        {
-            pathIndex++;
-            // Si en CHASE se acaba la ruta, forzar recalc pronto
-            if (pathIndex >= currentPath.Count && currentState == EnemyState.Chase)
+            if (currentState == EnemyState.Chase)
                 recalcTimer = recalculatePathInterval;
-        }
-        else if (currentState == EnemyState.Chase && (currentPath.Count - pathIndex) <= 1)
-        {
-            // Si ya vamos al último nodo y el jugador se movió, recalc
-            recalcTimer = Mathf.Max(recalcTimer, recalculatePathInterval * 0.75f);
-        }
-    }
-
-    bool ReachedPathEnd()
-    {
-        return currentPath == null || pathIndex >= currentPath.Count;
-    }
-
-    void RecalcPathTo(Vector3 worldTarget)
-    {
-        // Intento normal (evita santuarios)
-        var path = PathfindingBFS.Instance.FindPath(floorIndex, transform.position, worldTarget);
-        if (path == null || path.Count == 0)
-        {
-            // Fallback: camina directo un poco para “salir” y reintentar luego
-            Vector3 dir = (worldTarget - transform.position);
-            dir.y = 0f;
-            if (dir.sqrMagnitude > 0.01f)
-                controller.SimpleMove(dir.normalized * patrolSpeed);
-            // dejar currentPath tal cual; next frame volveremos a intentar
             return;
         }
 
-        currentPath = path;
-        pathIndex = 0;
-        recalcTimer = 0f;
-        // Debug.Log($"[{name}] Recalc path -> {currentPath.Count} nodes");
+        Vector3 targetPos = currentPath[pathIndex];
+        targetPos.y = transform.position.y;
+
+        Vector3 to = targetPos - transform.position;
+        to.y = 0f;
+
+        float reachDist = MultiFloorDynamicMapManager.Instance.cellSize * 0.45f;
+        if (to.sqrMagnitude <= reachDist * reachDist)
+        {
+            pathIndex++;
+            if (pathIndex >= currentPath.Count && currentState == EnemyState.Chase)
+                recalcTimer = recalculatePathInterval;
+            return;
+        }
+
+        Vector3 dir = to.normalized;
+        var flags = controller.Move(dir * speed * Time.deltaTime);
+
+        if ((flags & CollisionFlags.Sides) != 0)
+        {
+            Vector3 right = Vector3.Cross(Vector3.up, dir).normalized;
+            controller.Move(right * 0.2f);
+        }
+    }
+
+    bool ReachedPathEnd() => currentPath == null || pathIndex >= currentPath.Count;
+
+    void RecalcPathTo(Vector3 worldTarget)
+    {
+        var path = PathfindingBFS.Instance.FindPathStrict(floorIndex, transform.position, worldTarget);
+        if (path != null && path.Count > 0)
+        {
+            currentPath = path;
+            pathIndex = 0;
+            recalcTimer = 0f;
+        }
     }
 
     void GoToRandomPatrolPoint()
@@ -255,7 +251,6 @@ public class EnemyFSM : MonoBehaviour
         var free = MultiFloorDynamicMapManager.Instance.GetFreeCells(floorIndex);
         if (free.Count == 0) return;
 
-        // Evita celdas reservadas por otros enemigos en este piso
         free.RemoveAll(cell => occupiedPatrolCells.Contains(new Vector3Int(cell.x, cell.y, floorIndex)));
         if (free.Count == 0) return;
 
@@ -263,16 +258,13 @@ public class EnemyFSM : MonoBehaviour
         hasReservedCell = true;
         occupiedPatrolCells.Add(new Vector3Int(reservedCell.x, reservedCell.y, floorIndex));
 
-        Vector3 patrolPos = MultiFloorDynamicMapManager.Instance.CellToWorld(reservedCell, floorIndex);
-        currentPath = PathfindingBFS.Instance.FindPath(floorIndex, transform.position, patrolPos);
+        Vector3 patrolPos = MultiFloorDynamicMapManager.Instance.CellCenterToWorld(reservedCell, floorIndex);
+        currentPath = PathfindingBFS.Instance.FindPathStrict(floorIndex, transform.position, patrolPos);
         pathIndex = 0;
         currentState = EnemyState.Patrol;
     }
 
-    void StartPatrolling()
-    {
-        GoToRandomPatrolPoint();
-    }
+    void StartPatrolling() => GoToRandomPatrolPoint();
 
     void ClearReservedCell()
     {
@@ -285,6 +277,9 @@ public class EnemyFSM : MonoBehaviour
 
     private void OnMapChanged()
     {
+        if (onMapChangedCooldown > 0f) return;
+        onMapChangedCooldown = onMapChangedMinInterval;
+
         Vector3 target;
         if (currentState == EnemyState.Chase && player != null)
             target = player.position;
@@ -303,7 +298,7 @@ public class EnemyFSM : MonoBehaviour
             MultiFloorDynamicMapManager.Instance.OnMapUpdated -= OnMapChanged;
     }
 
-    // ---------------- Linterna ----------------
+    // ---------------- Linterna (reacciones) ----------------
 
     public void OnFlashlightHit()
     {
@@ -312,6 +307,27 @@ public class EnemyFSM : MonoBehaviour
             ClearReservedCell();
             currentState = EnemyState.Flee;
             ChooseFleeDestination();
+        }
+    }
+
+    public void OnFlashlightHitByBattery(BatteryType type)
+    {
+        bool shouldFlee = false;
+        switch (kind)
+        {
+            case EnemyKind.Basic: shouldFlee = (type == BatteryType.Green || type == BatteryType.Red); break;
+            case EnemyKind.Heavy: shouldFlee = (type == BatteryType.Red); break;
+            case EnemyKind.Runner: shouldFlee = (type == BatteryType.Blue); break;
+        }
+
+        if (shouldFlee)
+        {
+            if (currentState != EnemyState.Flee)
+            {
+                ClearReservedCell();
+                currentState = EnemyState.Flee;
+                ChooseFleeDestination();
+            }
         }
     }
 
@@ -325,31 +341,66 @@ public class EnemyFSM : MonoBehaviour
 
         foreach (var cell in free)
         {
-            Vector3 cellPos = MultiFloorDynamicMapManager.Instance.CellToWorld(cell, floorIndex);
+            Vector3 cellPos = MultiFloorDynamicMapManager.Instance.CellCenterToWorld(cell, floorIndex);
             float dist = Vector3.Distance(cellPos, player.position);
-            if (dist > maxDist)
-            {
-                maxDist = dist;
-                farthest = cell;
-            }
+            if (dist > maxDist) { maxDist = dist; farthest = cell; }
         }
 
-        Vector3 fleePos = MultiFloorDynamicMapManager.Instance.CellToWorld(farthest, floorIndex);
+        Vector3 fleePos = MultiFloorDynamicMapManager.Instance.CellCenterToWorld(farthest, floorIndex);
         RecalcPathTo(fleePos);
     }
 
-    private void ForceRecalcToCurrentTarget()
+    void RecoverFromStuck()
     {
-        if (currentState == EnemyState.Chase)
+        if (currentState == EnemyState.Chase && player != null)
         {
-            currentPath = PathfindingBFS.Instance.FindPath(floorIndex, transform.position, player.position);
+            if (PathfindingBFS.Instance.TryFindPathStrict(floorIndex, transform.position, player.position, out var p1))
+            {
+                currentPath = p1; pathIndex = 0; recalcTimer = 0f;
+                return;
+            }
         }
-        else if ((currentState == EnemyState.Patrol || currentState == EnemyState.Flee)
-                 && currentPath != null && pathIndex < currentPath.Count)
+        else if ((currentState == EnemyState.Patrol || currentState == EnemyState.Flee) && currentPath != null && pathIndex < currentPath.Count)
         {
-            currentPath = PathfindingBFS.Instance.FindPath(floorIndex, transform.position, currentPath[pathIndex]);
+            var target = currentPath[pathIndex];
+            if (PathfindingBFS.Instance.TryFindPathStrict(floorIndex, transform.position, target, out var p2))
+            {
+                currentPath = p2; pathIndex = 0; recalcTimer = 0f;
+                return;
+            }
         }
-        pathIndex = 0;
+
+        var wander = PathfindingBFS.Instance.FindWanderTarget(floorIndex, transform.position, player, minDistCells: 4f);
+        if (PathfindingBFS.Instance.TryFindPathStrict(floorIndex, transform.position, wander, out var p3))
+        {
+            currentPath = p3; pathIndex = 0; recalcTimer = 0f;
+            return;
+        }
+
+        Vector3 toPlayer = (player ? (player.position - transform.position) : Vector3.forward);
+        Vector3 right = Vector3.Cross(Vector3.up, toPlayer).normalized;
+        controller.SimpleMove(right * 0.6f);
+        recalcTimer = recalculatePathInterval;
+    }
+
+    // ---------------- Utilidades ----------------
+
+    bool PlayerInDetection()
+    {
+        if (!player) return false;
+        if (Vector3.Distance(transform.position, player.position) > detectionRange) return false;
+
+        if (!requireLineOfSightToChase) return true;
+
+        Vector3 origin = transform.position + Vector3.up * 0.6f;
+        Vector3 target = player.position + Vector3.up * 0.6f;
+        Vector3 dir = (target - origin).normalized;
+        float dist = Vector3.Distance(origin, target);
+
+        if (Physics.Raycast(origin, dir, out RaycastHit hit, dist, losObstacles))
+            return false;
+
+        return true;
     }
 
     void SetAnimation(string state)

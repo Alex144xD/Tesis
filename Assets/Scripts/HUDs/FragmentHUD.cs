@@ -6,13 +6,13 @@ public class FragmentHUD : MonoBehaviour
 {
     [Header("Referencias UI")]
     public TextMeshProUGUI counterText;
-    public Image fragmentIcon; 
+    public Image fragmentIcon;
     public GameObject rootHUD;
 
     [Header("Configuración")]
     public int totalFragments = 9;
-    public float minAlpha = 0.2f; 
-    public float maxAlpha = 1f;   
+    public float minAlpha = 0.2f;
+    public float maxAlpha = 1f;
 
     void Start()
     {

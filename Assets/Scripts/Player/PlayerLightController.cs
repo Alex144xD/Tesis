@@ -14,25 +14,40 @@ public class PlayerLightController : MonoBehaviour
     public float minRange = 5f;
     public float maxRange = 15f;
     public float flickerSpeed = 0.1f;
-    public float baseIntensity = 1.2f; // intensidad base
+    public float baseIntensity = 1.2f;
 
-    [Header("Batería")]
+    [Header("Batería (legacy si no hay BatterySystem)")]
     public float maxBattery = 30f;
     public float drainRate = 1f;
     public KeyCode toggleKey = KeyCode.F;
 
-    [Header("Umbrales batería (para HUD y parpadeo)")]
-    [Range(0f, 1f)] public float lowBatteryThreshold = 0.50f;    
-    [Range(0f, 1f)] public float criticalBatteryThreshold = 0.20f; 
+    [Header("Umbrales batería (HUD/parpadeo)")]
+    [Range(0f, 1f)] public float lowBatteryThreshold = 0.50f;
+    [Range(0f, 1f)] public float criticalBatteryThreshold = 0.20f;
 
     [Header("Parpadeo crítico")]
     public float blinkMin = 0.06f;
     public float blinkMax = 0.14f;
 
+    [Header("Color por tipo de batería")]
+    public Color greenColor = new Color32(80, 255, 140, 255);
+    public Color redColor = new Color32(255, 80, 80, 255);
+    public Color blueColor = new Color32(80, 160, 255, 255);
+    public Color legacyColor = Color.white;
+    [Range(1f, 20f)] public float colorLerpSpeed = 8f;
+
     private Light lamp;
-    private float currentBattery;
     private bool isOn = true;
     private Coroutine blinkRoutine;
+
+    // Legacy
+    private float currentBattery;
+
+    // Integración
+    private PlayerBatterySystem batteries;
+
+    // Color runtime
+    private Color currentLightColor;
 
     void Awake()
     {
@@ -42,7 +57,11 @@ public class PlayerLightController : MonoBehaviour
         lamp.intensity = baseIntensity;
         RenderSettings.ambientIntensity = 0.1f;
 
-        currentBattery = maxBattery;
+        currentBattery = maxBattery; // legacy
+        batteries = GetComponent<PlayerBatterySystem>();
+
+        currentLightColor = legacyColor;
+        lamp.color = currentLightColor;
 
         if (playerCamera == null)
             Debug.LogError("Asigna la Main Camera al PlayerLightController.");
@@ -52,37 +71,60 @@ public class PlayerLightController : MonoBehaviour
     {
         if (playerCamera == null) return;
 
-        // Encender/apagar manual
         if (Input.GetKeyDown(toggleKey))
             isOn = !isOn;
 
-        if (currentBattery <= 0f)
+        if (GetBatteryNormalized() <= 0f)
             isOn = false;
 
-        // Drenaje y flicker de alcance
         if (isOn)
         {
-            currentBattery = Mathf.Max(0f, currentBattery - drainRate * Time.deltaTime);
+            float consume = drainRate * Time.deltaTime;
+            bool stillHas = true;
 
-            float t = 0.5f + 0.5f * Mathf.PerlinNoise(Time.time * flickerSpeed, 0f);
-            lamp.range = Mathf.Lerp(minRange, maxRange, t);
-
-            // Ajuste de intensidad según batería (sensación de agotamiento)
-            float tBattery = GetBatteryNormalized();
-            lamp.intensity = Mathf.Lerp(baseIntensity * 0.6f, baseIntensity, tBattery);
-
-            // Parpadeo crítico
-            if (tBattery <= criticalBatteryThreshold)
+            if (batteries != null)
             {
-                if (blinkRoutine == null) blinkRoutine = StartCoroutine(BlinkLoop());
+                stillHas = batteries.ConsumeActiveBattery(consume);
             }
             else
             {
-                StopBlinkIfRunning();
-                lamp.enabled = true; // encendida estable si está On y no crítica
+                currentBattery = Mathf.Max(0f, currentBattery - consume);
+                stillHas = currentBattery > 0f;
             }
 
-            AffectEnemiesInLight();
+            if (!stillHas)
+            {
+                isOn = false;
+                StopBlinkIfRunning();
+                lamp.enabled = false;
+            }
+            else
+            {
+                // Flicker y alcance
+                float t = 0.5f + 0.5f * Mathf.PerlinNoise(Time.time * flickerSpeed, 0f);
+                lamp.range = Mathf.Lerp(minRange, maxRange, t);
+
+                // Intensidad según % batería
+                float tBattery = GetBatteryNormalized();
+                lamp.intensity = Mathf.Lerp(baseIntensity * 0.6f, baseIntensity, tBattery);
+
+                // Parpadeo crítico
+                if (tBattery <= criticalBatteryThreshold)
+                {
+                    if (blinkRoutine == null) blinkRoutine = StartCoroutine(BlinkLoop());
+                }
+                else
+                {
+                    StopBlinkIfRunning();
+                    lamp.enabled = true;
+                }
+
+                // Tinte según batería activa
+                UpdateTintByBattery();
+
+                // Efecto sobre enemigos
+                AffectEnemiesInLight();
+            }
         }
         else
         {
@@ -90,18 +132,33 @@ public class PlayerLightController : MonoBehaviour
             lamp.enabled = false;
         }
 
-        // Seguir cámara
+        // Seguir a la cámara
         transform.position = playerCamera.transform.position +
                              playerCamera.transform.TransformVector(localOffset);
         transform.rotation = playerCamera.transform.rotation;
     }
 
+    private void UpdateTintByBattery()
+    {
+        Color target = legacyColor;
+        if (batteries != null)
+        {
+            switch (batteries.activeType)
+            {
+                case BatteryType.Green: target = greenColor; break;
+                case BatteryType.Red: target = redColor; break;
+                case BatteryType.Blue: target = blueColor; break;
+            }
+        }
+        currentLightColor = Color.Lerp(currentLightColor, target, Time.deltaTime * colorLerpSpeed);
+        lamp.color = currentLightColor;
+    }
+
     private IEnumerator BlinkLoop()
     {
-        // Parpadeo on/off mientras la batería es crítica y la linterna está encendida
         while (true)
         {
-            if (!isOn || currentBattery <= 0f) { lamp.enabled = false; yield break; }
+            if (!isOn || GetBatteryNormalized() <= 0f) { lamp.enabled = false; yield break; }
             lamp.enabled = !lamp.enabled;
             yield return new WaitForSeconds(Random.Range(blinkMin, blinkMax));
         }
@@ -120,41 +177,55 @@ public class PlayerLightController : MonoBehaviour
     {
         if (!lamp.enabled) return;
 
-        Collider[] hitColliders = Physics.OverlapSphere(transform.position, lamp.range);
-        foreach (var hit in hitColliders)
+        Collider[] hits = Physics.OverlapSphere(transform.position, lamp.range);
+        for (int i = 0; i < hits.Length; i++)
         {
-            if (hit.CompareTag("Enemy"))
-            {
-                Vector3 dirToEnemy = (hit.transform.position - transform.position).normalized;
-                float angle = Vector3.Angle(transform.forward, dirToEnemy);
+            var hit = hits[i];
+            if (!hit.CompareTag("Enemy")) continue;
 
-                if (angle < lamp.spotAngle / 2f)
-                {
-                    EnemyFSM enemy = hit.GetComponent<EnemyFSM>();
-                    if (enemy != null)
-                    {
-                        enemy.OnFlashlightHit();
-                    }
-                }
-            }
+            Vector3 dirToEnemy = (hit.transform.position - transform.position).normalized;
+            float angle = Vector3.Angle(transform.forward, dirToEnemy);
+            if (angle >= lamp.spotAngle / 2f) continue;
+
+            EnemyFSM enemy = hit.GetComponent<EnemyFSM>();
+            if (enemy == null) continue;
+
+            if (batteries != null)
+                enemy.OnFlashlightHitByBattery(batteries.activeType);
+            else
+                enemy.OnFlashlightHit();
         }
     }
 
-    public void RechargeBattery(float amount)
-    {
-        currentBattery = Mathf.Min(maxBattery, currentBattery + amount);
-        if (currentBattery > 0f)
-        {
-            isOn = true;
-        }
-    }
+    // ------- API / Utils -------
 
     public float GetBatteryNormalized()
     {
-        return currentBattery / maxBattery;
+        if (batteries != null)
+            return batteries.GetActiveBatteryNormalized();
+        return maxBattery > 0f ? currentBattery / maxBattery : 0f;
     }
 
     public bool IsOn() => isOn;
     public float GetLowThreshold() => lowBatteryThreshold;
     public float GetCriticalThreshold() => criticalBatteryThreshold;
+
+    public void ForceOnIfHasBattery()
+    {
+        if (GetBatteryNormalized() > 0f) isOn = true;
+    }
+
+    // Compatibilidad con pickups legacy
+    public void RechargeBattery(float amount)
+    {
+        if (batteries != null) return;
+        currentBattery = Mathf.Min(maxBattery, currentBattery + amount);
+        if (currentBattery > 0f) isOn = true;
+    }
+
+    public void SetLightColor(Color newColor)
+    {
+        if (lamp != null) lamp.color = newColor;
+        currentLightColor = newColor;
+    }
 }
