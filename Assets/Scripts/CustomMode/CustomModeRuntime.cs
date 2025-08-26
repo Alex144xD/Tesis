@@ -1,5 +1,4 @@
-// Assets/Scripts/CustomMode/CustomModeRuntime.cs
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.SceneManagement;
 using System.Collections.Generic;
 
@@ -9,10 +8,26 @@ public class CustomModeRuntime : MonoBehaviour
 
     public CustomModeProfile ActiveProfile { get; private set; }
 
-    // Caches (EVITA acumulaciones)
-    struct MapBase { public float enemyDensity, batteryDensity, fragmentDensity; public int torchesMinPerFloor, torchesMaxPerFloor, floors; public bool has; }
-    struct EnemyBase { public float patrolSpeed, chaseSpeed, attackDamage; public bool has; }
-    struct LightBase { public float drainRate; public bool has; }
+
+    bool _customModeStarted;
+
+
+    struct MapBase
+    {
+        public float enemyDensity, batteryDensity, fragmentDensity;
+        public int torchesMinPerFloor, torchesMaxPerFloor, floors;
+        public bool has;
+    }
+    struct EnemyBase
+    {
+        public float patrolSpeed, chaseSpeed, attackDamage;
+        public bool has;
+    }
+    struct LightBase
+    {
+        public float drainRate;
+        public bool has;
+    }
 
     readonly Dictionary<int, MapBase> mapBase = new Dictionary<int, MapBase>();
     readonly Dictionary<int, EnemyBase> enemyBase = new Dictionary<int, EnemyBase>();
@@ -20,7 +35,7 @@ public class CustomModeRuntime : MonoBehaviour
 
     void Awake()
     {
-        if (Instance != null) { Destroy(gameObject); return; }
+        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
         DontDestroyOnLoad(gameObject);
         SceneManager.sceneLoaded += OnSceneLoaded_Reapply;
@@ -28,8 +43,8 @@ public class CustomModeRuntime : MonoBehaviour
 
     void OnDestroy()
     {
-        if (Instance == this)
-            SceneManager.sceneLoaded -= OnSceneLoaded_Reapply;
+        if (Instance == this) Instance = null;
+        SceneManager.sceneLoaded -= OnSceneLoaded_Reapply;
     }
 
     public void SetProfile(CustomModeProfile profile)
@@ -37,25 +52,41 @@ public class CustomModeRuntime : MonoBehaviour
         ActiveProfile = profile;
         if (!ActiveProfile) return;
 
-        ClearCaches(); // important�simo
-        if (GameManager.Instance) GameManager.Instance.StartCustomMode();
+        ClearCaches(); 
+        _customModeStarted = false; 
 
         ApplyToCurrentScene();
-        Debug.Log("[CustomMode] Perfil activo aplicado.");
+        Debug.Log("[CustomMode] Perfil activo aplicado en la escena actual.");
+
+        if (GameManager.Instance && !_customModeStarted)
+        {
+            _customModeStarted = true;
+            GameManager.Instance.StartCustomMode();
+        }
     }
 
     void OnSceneLoaded_Reapply(Scene s, LoadSceneMode mode)
     {
-        if (ActiveProfile != null) ApplyToCurrentScene();
+        if (ActiveProfile != null)
+        {
+            ApplyToCurrentScene();
+            Debug.Log($"[CustomMode] Reaplicado perfil al cargar escena: {s.name}");
+        }
     }
 
     public void ApplyToCurrentScene()
     {
         if (!ActiveProfile) return;
 
-        foreach (var m in FindObjectsOfType<MultiFloorDynamicMapManager>(true)) ApplyToMap(m);
-        foreach (var e in FindObjectsOfType<EnemyFSM>(true)) ApplyToEnemy(e);
-        foreach (var l in FindObjectsOfType<PlayerLightController>(true)) ApplyToFlashlight(l);
+        var maps = FindObjectsOfType<MultiFloorDynamicMapManager>(true);
+        var enemies = FindObjectsOfType<EnemyFSM>(true);
+        var lights = FindObjectsOfType<PlayerLightController>(true);
+
+        foreach (var m in maps) ApplyToMap(m);
+        foreach (var e in enemies) ApplyToEnemy(e);
+        foreach (var l in lights) ApplyToFlashlight(l);
+
+        Debug.Log($"[CustomMode] Aplicación -> maps:{maps.Length}, enemies:{enemies.Length}, lights:{lights.Length}");
     }
 
     public void ApplyToMap(MultiFloorDynamicMapManager map)
@@ -91,7 +122,12 @@ public class CustomModeRuntime : MonoBehaviour
         map.torchesMinPerFloor = min;
         map.torchesMaxPerFloor = max;
 
+
         map.floors = Mathf.Clamp(ActiveProfile.targetFloors, 1, 9);
+
+
+        var inv = FindObjectOfType<PlayerInventory>(true);
+        if (inv) inv.OverrideFragmentsToWin(map.floors);
     }
 
     public void ApplyToEnemy(EnemyFSM enemy)
@@ -114,6 +150,12 @@ public class CustomModeRuntime : MonoBehaviour
         enemy.patrolSpeed = b.patrolSpeed * ActiveProfile.enemyStatMul;
         enemy.chaseSpeed = b.chaseSpeed * ActiveProfile.enemyStatMul;
         enemy.attackDamage = b.attackDamage * ActiveProfile.enemyStatMul;
+
+        if (enemy.TryGetComponent<IEnemyBatteryDrainer>(out var drainer))
+            drainer.SetDrainsBattery(ActiveProfile.enemy2DrainsBattery);
+
+        if (enemy.TryGetComponent<ILightResistant>(out var resist))
+            resist.SetResistsLight(ActiveProfile.enemy3ResistsLight);
     }
 
     public void ApplyToFlashlight(PlayerLightController lightCtrl)
@@ -136,4 +178,14 @@ public class CustomModeRuntime : MonoBehaviour
         enemyBase.Clear();
         lightBase.Clear();
     }
+}
+
+public interface IEnemyBatteryDrainer
+{
+    void SetDrainsBattery(bool value);
+}
+
+public interface ILightResistant
+{
+    void SetResistsLight(bool value);
 }

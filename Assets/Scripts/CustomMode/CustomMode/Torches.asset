@@ -12,29 +12,37 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f184eefd3806f2140a41f73b08f34cf2, type: 3}
   m_Name: Torches
   m_EditorClassIdentifier: 
-  narrative: "\u201CLa Humanidad no es ciega, decide cuanta luz y bondad hay en ella.\u201D"
+  narrative: "\"Murmullos y m\xE1s murmullos. \xBFHablan entre ellos? \xBFDeciden
+    mi destino?\nMientras intento descifrar sus voces, uno de ellos habla con solemnidad:\n\n\u2014La
+    humanidad no es ciega\u2026 decide cu\xE1nta luz y cu\xE1nta sombra carga en
+    su alma.\n\nEl eco de sus palabras resuena en las llamas azules. Y entonces,
+    otra voz sentencia:\n\n\u2014T\xFA ya has tomado tus decisiones. Tu historia
+    est\xE1 escrita. Ser\xE1s recordado\u2026 pero dime, capit\xE1n:\n\n\xBFVali\xF3
+    la pena abandonar a tu tripulaci\xF3n por la promesa de la fama y gloria?"
   options:
   - text: "\u201CSin ron y tripulaci\xF3n no se puede saquear.\u201D"
     effects:
-      enemyStat: 0
-      enemyDensity: 0
-      batteryDrain: 0
-      batteryDensity: 0
+      enemyStat: -0.05
+      enemyDensity: -0.06
+      batteryDrain: -0.05
+      batteryDensity: 0.1
       fragmentDensity: 0
-      floorsDelta: 0
-      torchesOnlyStartFew: 0
+      floorsDelta: -1
+      mapSizePercent: -0.08
+      torchesOnlyStartFew: 2
       enemy2DrainsBattery: 0
       enemy3ResistsLight: 0
     next: {fileID: 11400000, guid: d71946ddaa6addf42ac89c95aecc751a, type: 2}
   - text: "\u201CYo solo, podr\xEDa hundir hasta el galen m\xE1s poderos..\u201D"
     effects:
-      enemyStat: 0
-      enemyDensity: 0
-      batteryDrain: 0
-      batteryDensity: 0
-      fragmentDensity: 0
-      floorsDelta: 0
-      torchesOnlyStartFew: 0
+      enemyStat: 0.08
+      enemyDensity: 0.08
+      batteryDrain: 0.05
+      batteryDensity: 0.08
+      fragmentDensity: 0.04
+      floorsDelta: 1
+      mapSizePercent: 0.08
+      torchesOnlyStartFew: 1
       enemy2DrainsBattery: 0
-      enemy3ResistsLight: 0
+      enemy3ResistsLight: 1
     next: {fileID: 11400000, guid: d71946ddaa6addf42ac89c95aecc751a, type: 2}

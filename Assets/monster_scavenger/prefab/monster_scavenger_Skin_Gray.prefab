@@ -686,12 +686,13 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 4228292131850356525}
-  - component: {fileID: 804216963693156806}
   - component: {fileID: 5300663299653791884}
   - component: {fileID: 831086842938154725}
+  - component: {fileID: 4429191810629067065}
+  - component: {fileID: 8869357664120467169}
   m_Layer: 0
   m_Name: monster_scavenger_Skin_Gray
-  m_TagString: Untagged
+  m_TagString: Enemy
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
@@ -705,7 +706,7 @@ Transform:
   m_GameObject: {fileID: 3595625012628118935}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalPosition: {x: 0, y: 0.059, z: 0}
   m_LocalScale: {x: 0.5, y: 0.5, z: 0.5}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -716,28 +717,6 @@ Transform:
   - {fileID: 8034353625782762298}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!195 &804216963693156806
-NavMeshAgent:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 3595625012628118935}
-  m_Enabled: 1
-  m_AgentTypeID: 0
-  m_Radius: 0.5
-  m_Speed: 3.5
-  m_Acceleration: 8
-  avoidancePriority: 50
-  m_AngularSpeed: 120
-  m_StoppingDistance: 0
-  m_AutoTraverseOffMeshLink: 1
-  m_AutoBraking: 1
-  m_AutoRepath: 1
-  m_Height: 1.6
-  m_BaseOffset: 0
-  m_WalkableMask: 4294967295
-  m_ObstacleAvoidanceType: 4
 --- !u!95 &5300663299653791884
 Animator:
   serializedVersion: 5
@@ -747,8 +726,8 @@ Animator:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 3595625012628118935}
   m_Enabled: 1
-  m_Avatar: {fileID: 0}
-  m_Controller: {fileID: 0}
+  m_Avatar: {fileID: 9000000, guid: f0a1ccbcad752104484b92f85be3f1f1, type: 3}
+  m_Controller: {fileID: 9100000, guid: 8cd913eb064be87499c59512b376c52c, type: 2}
   m_CullingMode: 0
   m_UpdateMode: 0
   m_ApplyRootMotion: 0
@@ -771,10 +750,123 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5644aa4c597299546a28ef5ac247bd20, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  chaseRange: 10
+  kind: 0
+  controller: {fileID: 4429191810629067065}
+  animator: {fileID: 5300663299653791884}
+  useCrossfadeFallback: 1
+  logAnimDebug: 1
+  animFade: 0.12
+  animLayer: 0
+  idleState: root|Anim_monster_scavenger_idle
+  walkState: root|Anim_monster_scavenger_walk
+  runState: root|Anim_monster_scavenger_walk
+  attackState: root|Anim_monster_scavenger_attack
+  detectionRange: 6
   attackRange: 2
-  damagePerSecond: 10
-  patrolPoints: []
+  requireLineOfSightToChase: 0
+  losObstacles:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  recalcPathCellThreshold: 2
+  recalculatePathInterval: 1
+  lastSeenMemorySeconds: 3
+  patrolSpeed: 2
+  chaseSpeed: 3.5
+  turnSpeedDeg: 540
+  gravity: 18
+  groundSnap: 2
+  attackDamage: 10
+  attackCooldown: 1
+  separationRadius: 0.8
+  separationForce: 2
+  enemyLayer:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  stuckRecalcTime: 1.2
+  minMoveSqr: 0.01
+  nudgeProbeFactor: 0.4
+  nudgePush: 0.12
+  onMapChangedMinInterval: 0.15
+  drawPathGizmos: 1
+  pathColor: {r: 0.2, g: 0.9, b: 1, a: 0.8}
+  visualRoot: {fileID: 0}
+  visualYawOffset: 0
+  faceByVelocity: 1
+  faceVelThreshold: 0.05
+  enableAudio: 1
+  monsterLoop: {fileID: 8300000, guid: 8169067966199ea45aa5cce39dd5fb27, type: 3}
+  loopVolumeIdle: 1
+  loopVolumeActive: 0.6
+  loopPitch: 1
+  pitchJitter: 0.03
+  loopFade: 0.08
+  spatial3D: 1
+  spatialBlend: 1
+  minDistance: 3
+  maxDistance: 25
+  rolloff: 1
+  floorIndex: 0
+  hitMemory: 0.15
+--- !u!143 &4429191810629067065
+CharacterController:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3595625012628118935}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Height: 2
+  m_Radius: 0.5
+  m_SlopeLimit: 45
+  m_StepOffset: 0.3
+  m_SkinWidth: 0.08
+  m_MinMoveDistance: 0.001
+  m_Center: {x: 0, y: 0.9, z: 0.1}
+--- !u!114 &8869357664120467169
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3595625012628118935}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8f9119bae5f613d49bfa6119082f3ad7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  allowDiagonals: 1
+  preventCornerCut: 1
+  smoothWithLOS: 1
+  heuristicTieBreak: 0.001
+  useInset: 1
+  waypointYOffset: 0.1
+  waypointsUseBatteryAnchor: 1
+  medialProbeCells: 3
+  medialInsetMax: 0.35
+  cornerAttenuation: 0.65
+  cornerInsetMin: 0.22
+  cornerPull: 0.65
+  losSideClearanceCells: 1
+  addCorridorSamples: 1
+  subdivideEveryCells: 4
+  useTrafficCost: 1
+  trafficCostFactor: 1
+  trafficDecayPerSecond: 1.5
+  perAgentJitter: 0.004
+  drawGizmos: 1
+  gizmoColor: {r: 0.2, g: 0.8, b: 1, a: 0.8}
+  gizmoSize: 0.08
 --- !u!1 &3994217530261323971
 GameObject:
   m_ObjectHideFlags: 0

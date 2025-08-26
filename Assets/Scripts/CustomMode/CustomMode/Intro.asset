@@ -12,42 +12,52 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f184eefd3806f2140a41f73b08f34cf2, type: 3}
   m_Name: Intro
   m_EditorClassIdentifier: 
-  narrative: "El mar calla. Un tribunal sin rostro te juzga en el purgatorio.\n\u201C\xBFQu\xE9
-    te guiaba cuando respirabas sal y p\xF3lvora?\u201D"
+  narrative: "\"El mar calla. El oleaje parece tranquilo, pero hay algo distinto
+    en \xE9l. Miro a mi alrededor y no alcanzo a distinguir nada en la distancia...
+    salvo una llama azul que arde solitaria.\n\xBFQu\xE9 es eso? Me pregunto mientras
+    avanzo, casi sin querer, hacia su fulgor.\n\nAl llegar, alzo la vista y los veo:
+    figuras sin rostro, inm\xF3viles, silenciosas. No s\xE9 qui\xE9nes son, pero
+    siento en lo m\xE1s profundo que me juzgan. \xBFUn tribunal? \xBFSer\xE1 que
+    estoy muerto?\n\nMientras esas preguntas me atraviesan, un murmullo retumba desde
+    aquellas presencias. Un sonido grave, imposible de ignorar\".\n\n\u2014\xBFQu\xE9
+    te guiaba cuando respirabas sal y p\xF3lvora?"
   options:
   - text: "La codicia me abr\xEDa camino"
     effects:
-      enemyStat: 0
+      enemyStat: 0.05
       enemyDensity: 0
-      batteryDrain: 0
-      batteryDensity: 0
-      fragmentDensity: 0
-      floorsDelta: 0
+      batteryDrain: 0.05
+      batteryDensity: 0.15
+      fragmentDensity: 0.05
+      floorsDelta: 1
+      mapSizePercent: 0.1
       torchesOnlyStartFew: 0
       enemy2DrainsBattery: 0
       enemy3ResistsLight: 0
     next: {fileID: 11400000, guid: d9d595e35892d814a98179803f0db024, type: 2}
   - text: "La lealtad a mi tripulaci\xF3n"
     effects:
-      enemyStat: 0
-      enemyDensity: 0
-      batteryDrain: 0
-      batteryDensity: 0
+      enemyStat: -0.05
+      enemyDensity: -0.05
+      batteryDrain: -0.05
+      batteryDensity: 0.15
       fragmentDensity: 0
       floorsDelta: 0
-      torchesOnlyStartFew: 0
+      mapSizePercent: 0
+      torchesOnlyStartFew: 2
       enemy2DrainsBattery: 0
       enemy3ResistsLight: 0
     next: {fileID: 11400000, guid: d9d595e35892d814a98179803f0db024, type: 2}
   - text: La temeridad; buscaba pelea
     effects:
-      enemyStat: 0
-      enemyDensity: 0
+      enemyStat: 0.15
+      enemyDensity: 0.1
       batteryDrain: 0
-      batteryDensity: 0
-      fragmentDensity: 0
-      floorsDelta: 0
+      batteryDensity: -0.05
+      fragmentDensity: 0.05
+      floorsDelta: 2
+      mapSizePercent: 0.15
       torchesOnlyStartFew: 0
       enemy2DrainsBattery: 0
-      enemy3ResistsLight: 0
+      enemy3ResistsLight: 1
     next: {fileID: 11400000, guid: d9d595e35892d814a98179803f0db024, type: 2}

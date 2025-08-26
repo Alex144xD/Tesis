@@ -1,39 +1,113 @@
-﻿// Assets/Scripts/CustomMode/CustomModeStoryNode.cs
-using UnityEngine;
+﻿using UnityEngine;
 
 [CreateAssetMenu(menuName = "Game/Custom Mode Story/Node")]
 public class CustomModeStoryNode : ScriptableObject
 {
+    [Header("Narrativa")]
+    [Tooltip("Texto mostrado en el panel. Se permite Rich Text de TMP.")]
     [TextArea(3, 12)]
-    public string narrative;            // Texto de historia/pregunta (TMP rich text)
+    public string narrative;
 
-    public Option[] options;            // Respuestas
+    [Header("Opciones")]
+    [Tooltip("Lista de respuestas/ramas. Dejar vacío convierte este nodo en final (si no hay 'next').")]
+    public Option[] options;
 
     [System.Serializable]
     public class Option
     {
-        public string text;             // Texto del botón
-        public StoryEffects effects;    // Efectos sobre el perfil
-        public CustomModeStoryNode next;// Siguiente nodo (null = terminar)
+        [Tooltip("Texto que se muestra en el botón.")]
+        [TextArea(1, 4)]
+        public string text;
+
+        [Tooltip("Efectos que acumula esta elección.")]
+        public StoryEffects effects;
+
+        [Tooltip("Siguiente nodo. Dejar NULL para finalizar la historia y aplicar el perfil.")]
+        public CustomModeStoryNode next;
     }
+
+#if UNITY_EDITOR
+
+    void OnValidate()
+    {
+        // Recortar narrativa
+        if (!string.IsNullOrEmpty(narrative))
+            narrative = narrative.Trim();
+
+        if (options == null) return;
+
+        bool anyNext = false;
+        for (int i = 0; i < options.Length; i++)
+        {
+            var opt = options[i];
+            if (opt == null) continue;
+
+            // Trim texto
+            if (!string.IsNullOrEmpty(opt.text))
+                opt.text = opt.text.Trim();
+
+ 
+            if (opt.next) anyNext = true;
+
+            // Avisos comunes
+            if (opt.next == this)
+            {
+                Debug.LogWarning($"[StoryNode] En '{name}' la opción #{i} apunta a SÍ MISMA (bucle). Revísalo.", this);
+            }
+            if (string.IsNullOrWhiteSpace(opt.text))
+            {
+                Debug.LogWarning($"[StoryNode] En '{name}' la opción #{i} no tiene texto.", this);
+            }
+            if (opt.next == null && (opt.effects == null || opt.effects.IsNeutral()))
+            {
+
+            }
+        }
+
+        if (!anyNext && (options == null || options.Length == 0))
+        {
+
+        }
+    }
+#endif
 }
 
 [System.Serializable]
 public class StoryEffects
 {
-    // Cambios relativos (1.0 = neutro). +0.2 => 1.2 al final
+    [Header("Multiplicadores relativos (se suman y luego 1+acc => clamp)")]
     [Range(-1f, 1f)] public float enemyStat;
     [Range(-1f, 1f)] public float enemyDensity;
     [Range(-1f, 1f)] public float batteryDrain;
     [Range(-1f, 1f)] public float batteryDensity;
     [Range(-1f, 1f)] public float fragmentDensity;
 
-    public int floorsDelta;                         // +/− pisos (se clamp a 1..9)
+    [Header("Pisos")]
+    [Tooltip("Delta sobre el valor base (3). Se clamp a los límites configurados en el Panel.")]
+    public int floorsDelta;
 
-    // Flags tri-estado
+    [Header("Tamaño del mapa (% relativo)")]
+    [Range(-0.5f, 0.5f)] public float mapSizePercent; 
+
+    [Header("Flags tri-estado (Unset = no cambia)")]
     public TriBool torchesOnlyStartFew;
     public TriBool enemy2DrainsBattery;
     public TriBool enemy3ResistsLight;
+
+
+    public bool IsNeutral()
+    {
+        return Mathf.Approximately(enemyStat, 0f)
+            && Mathf.Approximately(enemyDensity, 0f)
+            && Mathf.Approximately(batteryDrain, 0f)
+            && Mathf.Approximately(batteryDensity, 0f)
+            && Mathf.Approximately(fragmentDensity, 0f)
+            && floorsDelta == 0
+            && Mathf.Approximately(mapSizePercent, 0f)          
+            && torchesOnlyStartFew == TriBool.Unset
+            && enemy2DrainsBattery == TriBool.Unset
+            && enemy3ResistsLight == TriBool.Unset;
+    }
 }
 
 public enum TriBool { Unset, True, False }

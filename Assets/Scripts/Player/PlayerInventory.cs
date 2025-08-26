@@ -1,139 +1,192 @@
 ﻿using UnityEngine;
 using UnityEngine.Events;
+using System.Collections;
 
 public class PlayerInventory : MonoBehaviour
 {
     [Header("Progreso del jugador")]
     public int soulFragmentsCollected = 0;
-    public int totalLevels; // Se asigna dinámicamente desde el MapManager
+
+    [Tooltip("Se actualiza automáticamente desde el MapManager. Solo informativo.")]
+    public int totalLevels;
 
     [Header("Eventos")]
-    public UnityEvent<int, int> onFragmentCollected; // (actual, total)
+    public UnityEvent<int, int> onFragmentCollected; 
 
-    // --- Baterías / Integración ---
     [Header("Baterías")]
-    public PlayerBatterySystem batterySystem; // se auto-asigna en Start si es null
+    public PlayerBatterySystem batterySystem; 
 
     [Tooltip("Guardar cargas de baterías y fragmentos en PlayerPrefs")]
     public bool usePersistence = true;
 
-    // Eventos opcionales por si quieres enganchar HUD/toasts
-    [System.Serializable] public class BatteryChangedEvent : UnityEvent<BatteryType, float, float> { } // (tipo, actual, max)
+    [Tooltip("Si está activo, al iniciar se limpia el conteo de fragmentos guardado para evitar estados viejos.")]
+    public bool resetFragmentsOnNewRun = true;
+
+    [System.Serializable] public class BatteryChangedEvent : UnityEvent<BatteryType, float, float> { } 
     public BatteryChangedEvent onBatteryChanged;
 
     private GameManager gameManager;
     private MultiFloorDynamicMapManager mapManager;
     private FragmentHUD fragmentHUD;
 
-    // --- Claves PlayerPrefs ---
+    // --- Reglas de victoria ---
+    [Tooltip("Fragmentos requeridos para ganar. Se deriva de floors salvo que haya override.")]
+    [SerializeField] private int requiredFragmentsToWin = 1;
+
+    private bool fragmentsOverrideActive = false;
+
     const string KEY_FRAGMENTS = "INV_Fragments";
     const string KEY_BAT_G = "INV_BatGreen";
     const string KEY_BAT_R = "INV_BatRed";
     const string KEY_BAT_B = "INV_BatBlue";
 
-    void Start()
+    private void Awake()
     {
         gameManager = FindObjectOfType<GameManager>();
         mapManager = FindObjectOfType<MultiFloorDynamicMapManager>();
         fragmentHUD = FindObjectOfType<FragmentHUD>();
 
-        // Autoconectar sistema de baterías si vive en el mismo GO
         if (batterySystem == null)
             batterySystem = GetComponent<PlayerBatterySystem>();
+    }
 
-        // Tomar total de niveles desde el MapManager si existe
+    private void OnEnable()
+    {
+        if (mapManager != null)
+            mapManager.OnMapUpdated += HandleMapUpdated;
+    }
+
+    private void OnDisable()
+    {
+        if (mapManager != null)
+            mapManager.OnMapUpdated -= HandleMapUpdated;
+    }
+
+    private void Start()
+    {
+
         if (mapManager != null)
             totalLevels = mapManager.floors;
-        // Evitar 0 (seguro por si el manager no estaba listo)
+
         totalLevels = Mathf.Max(totalLevels, 1);
 
-        // Carga inicial (o reset si no queremos persistir)
-        if (usePersistence) LoadState();
-        else ResetInventory();
-
-        // HUD de fragmentos según modo (opcional)
-        if (fragmentHUD != null)
+        // Estado persistente
+        if (usePersistence)
         {
-            if (GameManager.Instance != null && GameManager.Instance.IsInCustomMode())
+            if (resetFragmentsOnNewRun)
             {
-                fragmentHUD.gameObject.SetActive(true);
-                fragmentHUD.UpdateFragmentCount(soulFragmentsCollected);
+                PlayerPrefs.DeleteKey(KEY_FRAGMENTS);
+                PlayerPrefs.Save();
+                soulFragmentsCollected = 0;
             }
             else
             {
-                fragmentHUD.gameObject.SetActive(false);
+                LoadState();
             }
         }
+        else
+        {
+            ResetInventory();
+        }
 
-        // Notificar HUD de baterías si usas el flujo por eventos (opcional)
+    
+        if (!fragmentsOverrideActive)
+            RecomputeRequiredFragmentsToWin();
+
+        StartCoroutine(DeferredSyncRequiredFragments());
+
+ 
+        SetupOrRefreshHUD();
+
+  
         FireBatteryEvents();
+
+        Debug.Log($"[PlayerInventory.Start] floors={totalLevels} required={requiredFragmentsToWin} override={fragmentsOverrideActive}");
     }
 
-    // ------------------- Fragmentos -------------------
+    private IEnumerator DeferredSyncRequiredFragments()
+    {
+ 
+        yield return null;
+
+
+        if (!fragmentsOverrideActive)
+        {
+            int before = requiredFragmentsToWin;
+            RecomputeRequiredFragmentsToWin();
+
+            if (requiredFragmentsToWin != before)
+            {
+                Debug.Log($"[PlayerInventory] Deferred sync updated requiredFragmentsToWin {before} -> {requiredFragmentsToWin}");
+                SetupOrRefreshHUD();
+            }
+        }
+    }
+
+    private void OnApplicationQuit()
+    {
+        if (usePersistence)
+        {
+            SaveFragments();
+            SaveBatteries();
+        }
+    }
 
     public void AddSoulFragment()
     {
-        soulFragmentsCollected++;
-        Debug.Log($"Fragmentos recogidos: {soulFragmentsCollected}/{totalLevels}");
+        soulFragmentsCollected = Mathf.Max(0, soulFragmentsCollected + 1);
 
-        // Evento opcional para HUD u otros sistemas
-        onFragmentCollected?.Invoke(soulFragmentsCollected, totalLevels);
+        Debug.Log($"[PlayerInventory] Fragmentos: {soulFragmentsCollected}/{requiredFragmentsToWin} (pisos:{totalLevels}, override:{fragmentsOverrideActive})");
+
+        onFragmentCollected?.Invoke(soulFragmentsCollected, requiredFragmentsToWin);
 
         if (fragmentHUD != null && GameManager.Instance != null && GameManager.Instance.IsInCustomMode())
             fragmentHUD.UpdateFragmentCount(soulFragmentsCollected);
 
         if (usePersistence) SaveFragments();
 
-        if (soulFragmentsCollected < totalLevels)
+        // ¿Aún faltan fragmentos?
+        if (soulFragmentsCollected < requiredFragmentsToWin)
         {
             if (mapManager != null) mapManager.GoToNextFloor();
-            else Debug.LogWarning("No se encontró el MapManager para cambiar de piso.");
+            else Debug.LogWarning("[PlayerInventory] No se encontró el MapManager para cambiar de piso.");
         }
         else
         {
-            Debug.Log("¡Has ganado el juego!");
-            // Fallbacks por si gameManager no está referenciado
+            // Ganar
+            Debug.Log("[PlayerInventory] ¡Has ganado el juego!");
             if (gameManager != null) gameManager.PlayerWin();
             else if (GameManager.Instance != null) GameManager.Instance.PlayerWin();
-            else Debug.LogWarning("No se encontró GameManager para procesar la victoria.");
+            else Debug.LogWarning("[PlayerInventory] No se encontró GameManager para procesar la victoria.");
         }
     }
 
     public void ResetInventory()
     {
         soulFragmentsCollected = 0;
-        // Si quieres resetear baterías también (opcional)
-        // ResetBatteriesToStart();
     }
 
-    // ------------------- Baterías (API de inventario) -------------------
-
-    /// <summary>Recarga una batería por tipo (p.ej. desde un pickup).</summary>
     public void AddBatteryCharge(BatteryType type, float amount)
     {
         if (batterySystem == null) return;
 
         batterySystem.Recharge(type, amount);
         if (usePersistence) SaveBatteries();
-        FireBatteryEvents(type); // opcional
+        FireBatteryEvents(type);
     }
 
-    /// <summary>Cambia el tipo activo (puedes llamarlo si haces cambio desde UI).</summary>
     public void SetActiveBattery(BatteryType type)
     {
         if (batterySystem == null) return;
         batterySystem.SetActive(type);
-        FireBatteryEvents(type); // opcional
+        FireBatteryEvents(type);
     }
 
-    /// <summary>Devuelve (actual, max) de un tipo.</summary>
     public (float current, float max) GetBatteryInfo(BatteryType type)
     {
         if (batterySystem == null) return (0f, 1f);
         return (batterySystem.GetCharge(type), batterySystem.GetMax(type));
     }
-
-    // ------------------- Persistencia -------------------
 
     public void SaveFragments()
     {
@@ -160,14 +213,12 @@ public class PlayerInventory : MonoBehaviour
         // Baterías
         if (batterySystem != null)
         {
-            // Si no existen claves, se respetan los valores iniciales del PlayerBatterySystem
             if (PlayerPrefs.HasKey(KEY_BAT_G)) batterySystem.curGreen = Mathf.Clamp(PlayerPrefs.GetFloat(KEY_BAT_G), 0f, batterySystem.maxGreen);
             if (PlayerPrefs.HasKey(KEY_BAT_R)) batterySystem.curRed = Mathf.Clamp(PlayerPrefs.GetFloat(KEY_BAT_R), 0f, batterySystem.maxRed);
             if (PlayerPrefs.HasKey(KEY_BAT_B)) batterySystem.curBlue = Mathf.Clamp(PlayerPrefs.GetFloat(KEY_BAT_B), 0f, batterySystem.maxBlue);
         }
     }
 
-    // Opcional: restaurar las cargas a los valores "start" del PlayerBatterySystem
     public void ResetBatteriesToStart()
     {
         if (batterySystem == null) return;
@@ -175,26 +226,6 @@ public class PlayerInventory : MonoBehaviour
         batterySystem.curRed = Mathf.Clamp(batterySystem.startRed, 0, batterySystem.maxRed);
         batterySystem.curBlue = Mathf.Clamp(batterySystem.startBlue, 0, batterySystem.maxBlue);
     }
-
-    void OnApplicationQuit()
-    {
-        if (usePersistence)
-        {
-            SaveFragments();
-            SaveBatteries();
-        }
-    }
-
-    void OnDestroy()
-    {
-        if (usePersistence)
-        {
-            SaveFragments();
-            SaveBatteries();
-        }
-    }
-
-    // ------------------- Utilidades internas -------------------
 
     private void FireBatteryEvents()
     {
@@ -207,5 +238,82 @@ public class PlayerInventory : MonoBehaviour
     {
         if (onBatteryChanged == null || batterySystem == null) return;
         onBatteryChanged.Invoke(type, batterySystem.GetCharge(type), batterySystem.GetMax(type));
+    }
+
+    private void HandleMapUpdated()
+    {
+
+        if (!fragmentsOverrideActive)
+        {
+            int before = requiredFragmentsToWin;
+            RecomputeRequiredFragmentsToWin();
+
+            if (requiredFragmentsToWin != before)
+                Debug.Log($"[PlayerInventory] MapUpdated -> required {before} -> {requiredFragmentsToWin}");
+        }
+
+        SetupOrRefreshHUD();
+    }
+
+    private void RecomputeRequiredFragmentsToWin()
+    {
+        if (fragmentsOverrideActive) return; 
+
+        int floorsNow = (mapManager != null) ? mapManager.floors : totalLevels;
+        floorsNow = Mathf.Max(floorsNow, 1);
+
+        requiredFragmentsToWin = floorsNow;
+        totalLevels = floorsNow;
+    }
+    public void SyncRequiredWithFloorsNow()
+    {
+        bool hadOverride = fragmentsOverrideActive;
+        fragmentsOverrideActive = false;
+        RecomputeRequiredFragmentsToWin();
+        fragmentsOverrideActive = hadOverride;
+        SetupOrRefreshHUD();
+        Debug.Log($"[PlayerInventory] SyncRequiredWithFloorsNow -> required={requiredFragmentsToWin}, floors={totalLevels}, override={fragmentsOverrideActive}");
+    }
+
+    public void OverrideFragmentsToWin(int required)
+    {
+        fragmentsOverrideActive = true;
+        requiredFragmentsToWin = Mathf.Max(1, required);
+
+        // Refleja en totalLevels solo como info
+        totalLevels = requiredFragmentsToWin;
+
+        SetupOrRefreshHUD();
+
+        Debug.Log($"[PlayerInventory] OverrideFragmentsToWin -> {requiredFragmentsToWin}");
+    }
+
+    public void ClearFragmentsOverride()
+    {
+        fragmentsOverrideActive = false;
+        RecomputeRequiredFragmentsToWin();
+        SetupOrRefreshHUD();
+
+        Debug.Log($"[PlayerInventory] ClearFragmentsOverride -> {requiredFragmentsToWin}");
+    }
+
+    public int GetRequiredFragmentsToWin() => requiredFragmentsToWin;
+
+    public void RefreshBatteryHUDEvents()
+    {
+        FireBatteryEvents();
+    }
+
+    private void SetupOrRefreshHUD()
+    {
+        if (fragmentHUD == null) return;
+
+        bool show = (GameManager.Instance != null && GameManager.Instance.IsInCustomMode());
+        fragmentHUD.gameObject.SetActive(show);
+        if (show)
+        {
+            fragmentHUD.totalFragments = requiredFragmentsToWin;
+            fragmentHUD.UpdateFragmentCount(soulFragmentsCollected);
+        }
     }
 }

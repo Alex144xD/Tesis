@@ -35,8 +35,18 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    void OnDestroy()
+    {
+        if (Instance == this)
+        {
+            SceneManager.sceneLoaded -= OnSceneLoaded_Reset;
+            Instance = null;
+        }
+    }
+
     void Update()
     {
+        // Evita pausar si ya terminó la partida
         if (Input.GetKeyDown(pauseKey) && !isGameOver && !isVictory)
         {
             if (!isPaused) PauseGame();
@@ -90,10 +100,14 @@ public class GameManager : MonoBehaviour
 
     public void RestartGame()
     {
+        // Estado limpio antes del reload
         Time.timeScale = 1f;
         isPaused = false;
         isGameOver = false;
         isVictory = false;
+
+        // ========== NUEVO: apagar paneles ANTES de cargar la escena ==========
+        if (UIManager.Instance) UIManager.Instance.PreSceneChangeCleanup();
 
         onGameRestart?.Invoke();
         Scene current = SceneManager.GetActiveScene();
@@ -111,8 +125,25 @@ public class GameManager : MonoBehaviour
         Time.timeScale = 0f;
     }
 
-    public void StartCustomMode() => inCustomMode = true;
+    public void StartCustomMode()
+    {
+        inCustomMode = true;
+
+        // Estado consistente para gameplay
+        isPaused = false;
+        isGameOver = false;
+        isVictory = false;
+
+        Time.timeScale = 1f;
+        ShowCursor(false);
+    }
+
     public bool IsInCustomMode() => inCustomMode;
+
+    public void ExitCustomMode()
+    {
+        inCustomMode = false;
+    }
 
     void ShowCursor(bool visible)
     {
@@ -122,10 +153,24 @@ public class GameManager : MonoBehaviour
 
     void OnSceneLoaded_Reset(Scene s, LoadSceneMode mode)
     {
+        // Si acabamos de ganar/perder, respeta el freeze de sus pantallas
         if (!isVictory && !isGameOver)
         {
-            Time.timeScale = isPaused ? 0f : 1f;
-            ShowCursor(isPaused);
+            if (inCustomMode)
+            {
+                // En Custom Mode siempre arrancamos "jugando"
+                isPaused = false;
+                Time.timeScale = 1f;
+                ShowCursor(false);
+
+                if (CustomModeRuntime.Instance && CustomModeRuntime.Instance.ActiveProfile)
+                    CustomModeRuntime.Instance.ApplyToCurrentScene();
+            }
+            else
+            {
+                Time.timeScale = isPaused ? 0f : 1f;
+                ShowCursor(isPaused);
+            }
         }
     }
 }

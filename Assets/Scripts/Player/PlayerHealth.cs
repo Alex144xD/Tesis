@@ -1,6 +1,8 @@
 ﻿using UnityEngine;
+using UnityEngine.Events;
 
-public class PlayerHealth : MonoBehaviour
+[RequireComponent(typeof(PlayerMovement))]
+public class PlayerHealth : MonoBehaviour, IDamageable
 {
     [Header("Salud")]
     public float maxHealth = 100f;
@@ -11,18 +13,35 @@ public class PlayerHealth : MonoBehaviour
     [Range(0f, 1f)] public float slowThreshold = 0.5f;
     [Range(0f, 1f)] public float slowFactor = 0.5f;
 
-    private float currentHealth;
-    private bool canRegen = true;
-    private bool isDead = false;
+    [Header("Eventos (observer)")]
+    public UnityEvent<float, float> onHealthChanged;   // (current,max)
+    public UnityEvent<float, Transform> onDamaged;     // (amount, source)
+    public UnityEvent onDeath;
 
-    private PlayerMovement movement;
+    float currentHealth;
+    bool canRegen = true;
+    bool isDead = false;
 
-    private void Awake()
+    PlayerMovement movement;
+
+    public bool IsDead => isDead;
+
+    void Awake()
     {
         currentHealth = maxHealth;
         movement = GetComponent<PlayerMovement>();
+        onHealthChanged?.Invoke(currentHealth, maxHealth);
     }
 
+    // === IDamageable ===
+    public void TakeDamage(DamageInfo info)
+    {
+        if (info.amount <= 0f) return;
+        TakeDamage(info.amount);
+        onDamaged?.Invoke(info.amount, info.source);
+    }
+
+    // Compatibilidad con llamadas antiguas
     public void TakeDamage(float amount)
     {
         if (isDead) return;
@@ -32,68 +51,60 @@ public class PlayerHealth : MonoBehaviour
         CancelInvoke(nameof(EnableRegen));
         Invoke(nameof(EnableRegen), regenDelay);
 
+        onHealthChanged?.Invoke(currentHealth, maxHealth);
         CheckPlayerDeath();
     }
 
-    private void EnableRegen()
-    {
-        canRegen = true;
-    }
+    void EnableRegen() => canRegen = true;
 
-    private void Update()
+    void Update()
     {
         if (isDead) return;
 
         if (canRegen && currentHealth < maxHealth)
         {
+            // Tu diseño: regenera hasta el umbral si estás por debajo
             float regenCap = (currentHealth <= maxHealth * slowThreshold)
                 ? maxHealth * slowThreshold
                 : maxHealth;
 
-            currentHealth = Mathf.Min(
-                regenCap,
-                currentHealth + regenRate * Time.deltaTime
-            );
+            float prev = currentHealth;
+            currentHealth = Mathf.Min(regenCap, currentHealth + regenRate * Time.deltaTime);
+
+            if (!Mathf.Approximately(prev, currentHealth))
+                onHealthChanged?.Invoke(currentHealth, maxHealth);
         }
     }
 
-    private void CheckPlayerDeath()
+    void CheckPlayerDeath()
     {
-        if (currentHealth <= 0f)
+        if (currentHealth <= 0f && !isDead)
         {
             isDead = true;
             Debug.Log("Jugador ha muerto");
 
-            // ✅ Desactivar movimiento del jugador
-            if (movement != null)
-                movement.enabled = false;
+            if (movement != null) movement.enabled = false;
 
-            // ✅ Desactivar enemigos
-            EnemyFSM[] enemies = FindObjectsOfType<EnemyFSM>();
-            foreach (var enemy in enemies)
-            {
+            foreach (var enemy in FindObjectsOfType<EnemyFSM>())
                 enemy.enabled = false;
-            }
 
-            // ✅ Llamar al GameManager
+            onDeath?.Invoke();
             if (GameManager.Instance != null)
                 GameManager.Instance.PlayerLose();
         }
     }
 
-    public float GetHealthNormalized()
-    {
-        return currentHealth / maxHealth;
-    }
-
-    public float GetSpeedFactor()
-    {
-        return (currentHealth <= maxHealth * slowThreshold) ? slowFactor : 1f;
-    }
+    public float GetHealthNormalized() => currentHealth / maxHealth;
+    public float GetSpeedFactor() => (currentHealth <= maxHealth * slowThreshold) ? slowFactor : 1f;
 
     public void Heal(float amount)
     {
-        if (isDead) return;
+        if (isDead || amount <= 0f) return;
+
+        float prev = currentHealth;
         currentHealth = Mathf.Min(maxHealth, currentHealth + amount);
+
+        if (currentHealth > prev)
+            onHealthChanged?.Invoke(currentHealth, maxHealth);
     }
 }

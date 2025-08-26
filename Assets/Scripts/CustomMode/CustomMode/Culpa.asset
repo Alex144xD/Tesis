@@ -12,29 +12,37 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f184eefd3806f2140a41f73b08f34cf2, type: 3}
   m_Name: Culpa
   m_EditorClassIdentifier: 
-  narrative: "\u201C\xBFTe pesa lo que robaste, capit\xE1n?\u201D"
+  narrative: "\"Una vez respondida tu elecci\xF3n, las figuras vuelven a hablar.
+    Su voz es calma, pero tan poderosa como el rugido del mar.\n\n\u2014Alguna vez
+    fuiste uno de los piratas m\xE1s temidos. Llenaste tu bodega de oro, tus noches
+    de ron y tus brazos de mujeres. Navegaste hacia los lugares m\xE1s oscuros y
+    peligrosos, donde ning\xFAn hombre se atrev\xEDa a entrar.\n\nDecidiste, sacrificaste,
+    traicionaste\u2026 todo por tener cada vez m\xE1s.\n\nY ahora, capit\xE1n...\n\n\u2014\xBFTe
+    pesa lo que robaste?"
   options:
   - text: "\u201CS\xED. Talvez en otra vida pueda ser mejor hombre.\u201D"
     effects:
-      enemyStat: 0
-      enemyDensity: 0
-      batteryDrain: 0
-      batteryDensity: 0
+      enemyStat: -0.05
+      enemyDensity: -0.05
+      batteryDrain: -0.05
+      batteryDensity: 0.1
       fragmentDensity: 0
-      floorsDelta: 0
-      torchesOnlyStartFew: 0
+      floorsDelta: -1
+      mapSizePercent: -0.1
+      torchesOnlyStartFew: 2
       enemy2DrainsBattery: 0
       enemy3ResistsLight: 0
     next: {fileID: 11400000, guid: 272285897a02dc44287751d6c2dee513, type: 2}
   - text: "\u201CNo. Lo har\xEDa de nuevo, una y otra vez, hasta el fin de los tiempos.\u201D"
     effects:
-      enemyStat: 0
-      enemyDensity: 0
-      batteryDrain: 0
-      batteryDensity: 0
-      fragmentDensity: 0
-      floorsDelta: 0
+      enemyStat: 0.1
+      enemyDensity: 0.1
+      batteryDrain: 0.05
+      batteryDensity: -0.1
+      fragmentDensity: 0.05
+      floorsDelta: 1
+      mapSizePercent: 0.1
       torchesOnlyStartFew: 0
-      enemy2DrainsBattery: 0
+      enemy2DrainsBattery: 1
       enemy3ResistsLight: 0
     next: {fileID: 11400000, guid: 272285897a02dc44287751d6c2dee513, type: 2}

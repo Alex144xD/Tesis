@@ -18,12 +18,13 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     [Min(0.25f)] public float minFloorHeadroom = 0.75f;
 
     [Header("Prefabs (Maze)")]
-    public GameObject floorPrefab;         // piso
-    public GameObject wallPrefab;          // muro normal
-    public GameObject wallTorchPrefab;     // muro con antorcha integrada (lleva TorchSafeZone)
+    public GameObject floorPrefab;         
+    public GameObject wallPrefab;          
+    public GameObject wallTorchPrefab;     
 
     [Header("Prefabs (Entidades)")]
-    public GameObject batteryPrefab;
+
+    public List<GameObject> batteryPrefabs;    
     public GameObject soulFragmentPrefab;
     public List<GameObject> enemyPrefabs;
 
@@ -46,8 +47,8 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     public Transform player;
 
     [Header("Colocación de pickups")]
-    public bool oneFragmentPerFloor = true;     // ← NUEVO: 1 fragmento por piso
-    public float pickupLiftEpsilon = 0.02f;     // ← NUEVO: elevación mínima para evitar z-fighting
+    public bool oneFragmentPerFloor = true;    
+    public float pickupLiftEpsilon = 0.02f;     
 
     public event Action OnMapUpdated;
 
@@ -143,7 +144,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         if (pf != currentFloor) ChangeFloor(pf);
     }
 
-    // =================== PISOS / GENERACIÓN ===================
+
 
     int GetPlayerFloor()
     {
@@ -154,8 +155,21 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     public void GoToNextFloor()
     {
         int next = Mathf.Min(currentFloor + 1, floors - 1);
+
+ 
         ChangeFloor(next);
         Debug.Log("Cambio al piso: " + next);
+
+  
+        if (player)
+        {
+            Vector2Int fromCell = WorldToCell(player.position);
+
+            if (TryFindFarthestFreeCell(next, fromCell, out var farCell))
+                TeleportPlayerToCell(player, farCell, next);
+            else
+                TeleportPlayerToCell(player, ClampToBounds(fromCell), next);
+        }
     }
 
     void ChangeFloor(int newFloor)
@@ -233,7 +247,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
             freeCells[f] = new List<Vector2Int>();
 
-            // Suelo: malla única escalada
+
             var floorGO = Instantiate(
                 floorPrefab,
                 new Vector3((width - 1) * cellSize / 2f, yOff, (height - 1) * cellSize / 2f),
@@ -242,7 +256,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             );
             SetupFloorSize(floorGO);
 
-            // Muros y free-cells
+
             for (int x = 0; x < width; x++)
             {
                 for (int y = 0; y < height; y++)
@@ -282,7 +296,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             floorGO.transform.localScale = new Vector3(sx, 1f, sz);
     }
 
-    // =================== REGENERACIÓN PARCIAL ===================
 
     void PartialRegenerate()
     {
@@ -411,7 +424,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         return ClampToBounds(from);
     }
 
-    // =================== SPAWNS ===================
+
 
     void ClearTorchWalls(int floor)
     {
@@ -420,7 +433,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             if (t) Destroy(t);
         spawnedTorchWalls[floor].Clear();
 
-        // limpiar santuarios; las antorchas activas los volverán a marcar cuando enciendan
+
         for (int x = 0; x < width; x++)
             for (int y = 0; y < height; y++)
                 sanctuaryGrid[floor, x, y] = false;
@@ -515,16 +528,26 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             (playerOnThis && (Mathf.Abs(c.x - playerCell.x) + Mathf.Abs(c.y - playerCell.y) <= 2))
         );
 
-        // ---- BATERÍAS (por densidad/escala) ----
+
         int batteries = autoScaleByMapSize ? ScaledCount(batteryDensity, minBatteries, maxBatteries) : minBatteries;
 
-        for (int i = 0; i < batteries && cells.Count > 0 && batteryPrefab; i++)
+        // reparto round-robin entre los prefabs disponibles
+        int rr = 0;
+        for (int i = 0; i < batteries && cells.Count > 0 && batteryPrefabs != null && batteryPrefabs.Count > 0; i++)
         {
             int idx = rng.Next(cells.Count);
             var cell = cells[idx];
 
-            var go = Instantiate(batteryPrefab, CellCenterToWorld(cell, f), Quaternion.identity, floorContainers[f]);
-            SnapToFloorByRendererHeight(go.transform, f); // ← altura real de Renderer
+            var prefab = batteryPrefabs[rr % batteryPrefabs.Count];
+            rr++;
+
+            var go = Instantiate(
+                prefab,
+                BatteryAnchorToWorld(cell, f),  
+                Quaternion.identity,
+                floorContainers[f]
+            );
+            SnapToFloorByRendererHeight(go.transform, f);
             spawnedEntities[f].Add(go);
 
             cells.RemoveAt(idx);
@@ -540,7 +563,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             var cell = cells[idx];
 
             var go = Instantiate(soulFragmentPrefab, CellCenterToWorld(cell, f), Quaternion.identity, floorContainers[f]);
-            SnapToFloorByRendererHeight(go.transform, f); // ← altura real de Renderer
+            SnapToFloorByRendererHeight(go.transform, f);
             spawnedEntities[f].Add(go);
 
             cells.RemoveAt(idx);
@@ -571,7 +594,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             var cell = cells[idx];
             var e = Instantiate(prefab, CellCenterToWorld(cell, f), Quaternion.identity, floorContainers[f]);
 
-            // Usar altura por Renderer para que no queden hundidos
             SnapToFloorByRendererHeight(e.transform, f);
 
             spawnedEntities[f].Add(e);
@@ -579,7 +601,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         }
     }
 
-    // =================== GRIDS / UTILS ===================
+
 
     void UpdateWalkableGrid()
     {
@@ -626,8 +648,14 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         return new Vector3(cell.x * cellSize, -floor * floorHeight, cell.y * cellSize);
     }
 
-    // Centro lógico (usa las coordenadas de celda; si tus prefabs de piso están centrados en esquinas, funciona bien)
+
     public Vector3 CellCenterToWorld(Vector2Int cell, int floor)
+    {
+        return new Vector3(cell.x * cellSize, -floor * floorHeight, cell.y * cellSize);
+    }
+
+
+    public Vector3 BatteryAnchorToWorld(Vector2Int cell, int floor)
     {
         return new Vector3(cell.x * cellSize, -floor * floorHeight, cell.y * cellSize);
     }
@@ -677,7 +705,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         t.position = p;
     }
 
-    // NUEVO: coloca por altura real (Renderer.bounds) para no atravesar el piso
+
     void SnapToFloorByRendererHeight(Transform t, int floor)
     {
         if (!t) return;
@@ -715,5 +743,64 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     {
         var all = FindObjectsOfType<BatteryPickup>(includeInactive: false);
         return all?.Length ?? 0;
+    }
+
+
+    bool TryFindFarthestFreeCell(int floor, Vector2Int from, out Vector2Int farthest)
+    {
+        farthest = from;
+        var cells = GetFreeCells(floor);
+        if (cells == null || cells.Count == 0) return false;
+
+        float maxDist = -1f;
+        Vector3 fromWorld = CellCenterToWorld(from, floor);
+
+        for (int i = 0; i < cells.Count; i++)
+        {
+            var c = cells[i];
+            if (sanctuaryGrid[floor, c.x, c.y]) continue; 
+
+            Vector3 pos = CellCenterToWorld(c, floor);
+            float d = Vector3.SqrMagnitude(pos - fromWorld);
+            if (d > maxDist)
+            {
+                maxDist = d;
+                farthest = c;
+            }
+        }
+        return maxDist >= 0f;
+    }
+
+    void TeleportPlayerToCell(Transform who, Vector2Int cell, int floor)
+    {
+        if (!who) return;
+
+
+        var cc = who.GetComponent<CharacterController>();
+        bool hadCC = cc != null && cc.enabled;
+        if (cc != null) cc.enabled = false;
+
+
+        Vector3 p = CellCenterToWorld(cell, floor);
+        who.position = p;
+        SnapToFloorY(who, floor, 0.02f);
+
+        // Re-activar CC
+        if (cc != null) cc.enabled = hadCC;
+
+
+        if (UIManager.Instance && UIManager.Instance.hudRoot)
+            UIManager.Instance.hudRoot.SetActive(true);
+
+        // Re-asegurar linterna activa si existe
+        var lightCtrl = who.GetComponentInChildren<PlayerLightController>(true);
+        if (lightCtrl != null)
+        {
+            lightCtrl.gameObject.SetActive(true);
+            lightCtrl.ForceOnIfHasBattery();
+        }
+
+        var inv = who.GetComponent<PlayerInventory>();
+
     }
 }

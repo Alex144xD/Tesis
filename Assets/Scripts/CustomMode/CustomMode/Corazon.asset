@@ -12,29 +12,37 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f184eefd3806f2140a41f73b08f34cf2, type: 3}
   m_Name: Corazon
   m_EditorClassIdentifier: 
-  narrative: "\u201C\xBFTe frenaba el miedo\u2026 o te arrojaba a la tormenta?\u201D"
+  narrative: "\"Las voces se apagan por un instante\u2026 y el silencio se hace m\xE1s
+    pesado que el mar en calma.\nEntonces, una voz solitaria atraviesa la penumbra,
+    firme pero llena de compasi\xF3n:\n\n\u2014Ya has elegido tu rumbo, capit\xE1n\u2026
+    pero antes de continuar, abre tu pecho y responde con la verdad que solo t\xFA
+    conoces.\n\nLa llama azul palpita como si fuera tu propio coraz\xF3n.\n\n\u2014Dime\u2026
+    en lo m\xE1s profundo de tu alma\u2026\n\n\xBFTe frenaba el miedo\u2026 o te
+    arrojaba a la tormenta?"
   options:
   - text: "\u201CAvanzo con cautela.\u201D"
     effects:
-      enemyStat: 0
-      enemyDensity: 0
-      batteryDrain: 0
-      batteryDensity: 0
+      enemyStat: -0.05
+      enemyDensity: -0.05
+      batteryDrain: -0.05
+      batteryDensity: 0.05
       fragmentDensity: 0
-      floorsDelta: 0
+      floorsDelta: -1
+      mapSizePercent: -0.05
       torchesOnlyStartFew: 0
       enemy2DrainsBattery: 0
       enemy3ResistsLight: 0
     next: {fileID: 11400000, guid: 3d087baf3b1ae0849beebe3ab57be49f, type: 2}
   - text: "\u201CMe lanzo al peligro.\u201D"
     effects:
-      enemyStat: 0
-      enemyDensity: 0
-      batteryDrain: 0
-      batteryDensity: 0
-      fragmentDensity: 0
-      floorsDelta: 0
+      enemyStat: 0.08
+      enemyDensity: 0.08
+      batteryDrain: 0.05
+      batteryDensity: -0.05
+      fragmentDensity: 0.05
+      floorsDelta: 1
+      mapSizePercent: 0.08
       torchesOnlyStartFew: 0
       enemy2DrainsBattery: 0
-      enemy3ResistsLight: 0
+      enemy3ResistsLight: 1
     next: {fileID: 11400000, guid: 3d087baf3b1ae0849beebe3ab57be49f, type: 2}

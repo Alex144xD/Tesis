@@ -1,11 +1,11 @@
 using UnityEngine;
 
-[RequireComponent(typeof(PlayerHealth))] // << quitamos PlayerLightController aquí
+[RequireComponent(typeof(PlayerHealth))] 
 public class PlayerBatterySystem : MonoBehaviour
 {
     [Header("Referencias")]
     [Tooltip("Arrastra aquí el PlayerLightController del objeto 'Linterna'.")]
-    public PlayerLightController lamp;   // << ahora se puede asignar externo
+    public PlayerLightController lamp;   
 
     [Header("Batería activa")]
     public BatteryType activeType = BatteryType.Green;
@@ -21,9 +21,8 @@ public class PlayerBatterySystem : MonoBehaviour
     public float startBlue = 10f;
 
     [Header("Efectos extra")]
-    public float redHealthDrainPerSecond = 4f; // roja drena vida
-    public bool blueBlocksSprint = true;       // azul bloquea sprint
-
+    public float redHealthDrainPerSecond = 4f; 
+    public bool blueBlocksSprint = true;       
     public float curGreen { get; set; }
     public float curRed { get; set; }
     public float curBlue { get; set; }
@@ -33,11 +32,11 @@ public class PlayerBatterySystem : MonoBehaviour
 
     void Awake()
     {
-        // Referencias locales
+
         health = GetComponent<PlayerHealth>();
         movement = GetComponent<PlayerMovement>();
 
-        // Si no se asignó la linterna en el inspector, intenta encontrarla en hijos/padres/escena
+
         if (!lamp)
         {
             lamp = GetComponentInChildren<PlayerLightController>();
@@ -51,6 +50,15 @@ public class PlayerBatterySystem : MonoBehaviour
         curBlue = Mathf.Clamp(startBlue, 0, maxBlue);
     }
 
+    void Start()
+    {
+
+        if (lamp != null)
+        {
+            lamp.OnBatterySwitched(activeType);
+        }
+    }
+
     void Update()
     {
         // Cambio rápido con 1/2/3
@@ -58,7 +66,7 @@ public class PlayerBatterySystem : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.Alpha2)) SetActive(BatteryType.Red);
         if (Input.GetKeyDown(KeyCode.Alpha3)) SetActive(BatteryType.Blue);
 
-        // Efectos mientras la linterna esté encendida
+
         bool lightOn = lamp != null && lamp.IsOn();
 
         if (lightOn)
@@ -75,9 +83,7 @@ public class PlayerBatterySystem : MonoBehaviour
         }
     }
 
-    // --- API usada por PlayerLightController ---
-
-    /// Consume de la batería ACTIVA. Devuelve true si aún queda (>0).
+ 
     public bool ConsumeActiveBattery(float amount)
     {
         switch (activeType)
@@ -95,7 +101,6 @@ public class PlayerBatterySystem : MonoBehaviour
         return false;
     }
 
-    /// 0..1 del tipo ACTIVO (para HUD/linterna).
     public float GetActiveBatteryNormalized()
     {
         switch (activeType)
@@ -107,7 +112,7 @@ public class PlayerBatterySystem : MonoBehaviour
         return 0f;
     }
 
-    // --- Recarga / getters ---
+
 
     public void Recharge(BatteryType type, float amount)
     {
@@ -118,7 +123,7 @@ public class PlayerBatterySystem : MonoBehaviour
             case BatteryType.Blue: curBlue = Mathf.Min(maxBlue, curBlue + amount); break;
         }
 
-        // Si estaba apagada y ahora hay carga, permite encender
+
         if (lamp != null && !lamp.IsOn() && GetActiveBatteryNormalized() > 0f)
             lamp.ForceOnIfHasBattery();
     }
@@ -148,10 +153,10 @@ public class PlayerBatterySystem : MonoBehaviour
     public void SetActive(BatteryType type)
     {
         activeType = type;
-        // El color se actualizará en PlayerLightController (lee activeType y tintea la luz).
+
+        if (lamp != null) lamp.OnBatterySwitched(activeType);
     }
 
-    // Si estás cargando desde inventario/PlayerPrefs:
     public void SetCharge(BatteryType type, float value, bool clampToMax = true)
     {
         switch (type)

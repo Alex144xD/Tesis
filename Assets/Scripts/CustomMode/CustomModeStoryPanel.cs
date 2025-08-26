@@ -1,4 +1,4 @@
-using UnityEngine;
+Ôªøusing UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using UnityEngine.SceneManagement;
@@ -7,31 +7,38 @@ using System.Collections.Generic;
 [DisallowMultipleComponent]
 public class CustomModeStoryPanel : MonoBehaviour
 {
-    [Header("UI mÌnimos")]
-    public TextMeshProUGUI bodyText;          // Texto de historia/pregunta
-    public Button optionButtonPrefab;         // Prefab de botÛn; si es null, creo uno simple
+    [Header("UI")]
+    public TextMeshProUGUI titleText;        
+    public TextMeshProUGUI bodyText;       
+    public Button optionButtonPrefab;         
 
     [Header("Historia")]
-    public CustomModeStoryNode startNode;     // Primer nodo
+    public CustomModeStoryNode startNode;
 
-    [Header("ApariciÛn")]
+    [Header("Aparici√≥n")]
     public bool autoOpenOnEnable = true;
 
-    [Header("Layout manual")]
-    public float buttonHeight = 48f;
-    public float spacing = 8f;
-    public float paddingLeft = 12f;
-    public float paddingTop = 12f;
-    public float paddingRight = 12f;          // se respeta para calcular ancho
-    // Nota: el contenedor es el mismo GameObject con este script
+    [Header("Layout (botones desde el centro hacia abajo)")]
+    public float buttonHeight = 44f;
+    public float spacing = 28f;
+    public float sidePadding = 24f;
+    public float maxButtonsWidth = 720f;
+    public float firstButtonYOffset = 260f;
+    public TextAlignmentOptions buttonTextAlign = TextAlignmentOptions.Midline;
+    public Color buttonTextColor = new Color(1f, 0.84f, 0f);
+    public Color buttonOutlineColor = Color.black;
+    [Range(0, 1f)] public float buttonOutlineWidth = 0.22f;
 
-    [Header("AplicaciÛn")]
+    [Header("Aplicaci√≥n")]
     public string gameplayScene = "Game";
     public bool autoLoadGameOnFinish = true;
 
-    [Header("LÌmites finales")]
+    [Header("L√≠mites finales")]
     public float mulMin = 0.6f, mulMax = 1.6f;
     public int floorsMin = 1, floorsMax = 9;
+
+    [Header("L√≠mites de tama√±o de mapa (multiplicador)")]
+    public float mapMulMin = 0.6f, mapMulMax = 1.6f; // ‚Üê NUEVO
 
     [Header("Debug")]
     public bool debugLogs = false;
@@ -43,13 +50,16 @@ public class CustomModeStoryPanel : MonoBehaviour
     // Acumuladores
     float accEnemyStat, accEnemyDensity, accBatteryDrain, accBatteryDensity, accFragmentDensity;
     int accFloors;
+    float accMapSizePct; // ‚Üê NUEVO
+
     TriBool f_torchesFew = TriBool.Unset, f_enemy2Drain = TriBool.Unset, f_enemy3Resist = TriBool.Unset;
+
+    bool _locked; // <- debounce
 
     RectTransform PanelRT => (RectTransform)transform;
 
     void Awake()
     {
-        // MantÈn oculta la PLANTILLA para no verla duplicada en escena
         if (optionButtonPrefab && optionButtonPrefab.gameObject.activeSelf)
             optionButtonPrefab.gameObject.SetActive(false);
     }
@@ -59,38 +69,41 @@ public class CustomModeStoryPanel : MonoBehaviour
         if (autoOpenOnEnable) Open();
     }
 
-    // === API ===
+    void OnValidate()
+    {
+        buttonHeight = Mathf.Max(24f, buttonHeight);
+        spacing = Mathf.Max(0f, spacing);
+        sidePadding = Mathf.Max(0f, sidePadding);
+        maxButtonsWidth = Mathf.Max(120f, maxButtonsWidth);
+        firstButtonYOffset = Mathf.Max(0f, firstButtonYOffset);
+
+        if (Application.isPlaying && spawnedButtons != null && spawnedButtons.Count > 0)
+            LayoutButtonsFromCenterDown();
+    }
+
     public void Open()
     {
         ResetAcc();
+        _locked = false;
         current = startNode;
         gameObject.SetActive(true);
         RenderCurrent();
     }
 
-    public void Close()
-    {
-        gameObject.SetActive(false);
-    }
+    public void Close() => gameObject.SetActive(false);
 
-    // === Render ===
     void RenderCurrent()
     {
-        // Limpia lo instanciado
         for (int i = 0; i < spawnedButtons.Count; i++)
             if (spawnedButtons[i]) Destroy(spawnedButtons[i]);
         spawnedButtons.Clear();
 
-        if (!current)
-        {
-            FinishAndApply();
-            return;
-        }
+        if (!current) { FinishAndApply(); return; }
 
-        if (bodyText)
-            bodyText.text = string.IsNullOrEmpty(current.narrative)
-                ? "<i>(Este nodo no tiene texto en 'narrative')</i>"
-                : current.narrative;
+        string narr = current.narrative ?? string.Empty;
+        SplitFirstLine(narr, out string firstLine, out string rest);
+        if (titleText) titleText.text = firstLine;
+        if (bodyText) bodyText.text = string.IsNullOrEmpty(rest) ? (string.IsNullOrEmpty(firstLine) ? "<i>(Sin texto)</i>" : firstLine) : rest;
 
         if (current.options == null || current.options.Length == 0)
         {
@@ -99,12 +112,9 @@ public class CustomModeStoryPanel : MonoBehaviour
             return;
         }
 
-        if (debugLogs) Debug.Log($"[Story] Opciones en el nodo: {current.options.Length}");
-
-        // Crea un botÛn por opciÛn como hijo de este Panel (layout manual)
         foreach (var opt in current.options)
         {
-            var captured = opt; // evitar cierre
+            var captured = opt;
 
             Button btn = optionButtonPrefab
                 ? Instantiate(optionButtonPrefab, transform)
@@ -112,51 +122,36 @@ public class CustomModeStoryPanel : MonoBehaviour
 
             if (!btn.gameObject.activeSelf) btn.gameObject.SetActive(true);
 
-            AssignAllLabelsText(btn.transform, captured.text);
-
-            // Asegurar rect para layout manual
-            SetupButtonRectForManualLayout(btn);
+            StyleButtonLabelText(btn.transform, captured.text);
+            SetupButtonRectCenterAnchored(btn);
 
             btn.onClick.AddListener(() => OnChoose(captured));
             spawnedButtons.Add(btn.gameObject);
-
-            if (debugLogs) Debug.Log("[Story] BotÛn creado: " + captured.text);
         }
 
-        // Apilar por cÛdigo
-        LayoutButtonsManually();
+        LayoutButtonsFromCenterDown();
     }
 
-    // Asigna el texto a todos los labels encontrados en el botÛn
-    void AssignAllLabelsText(Transform root, string text)
+    void SplitFirstLine(string s, out string firstLine, out string rest)
     {
-        if (!root) return;
-        int hits = 0;
-
-        var tmps = root.GetComponentsInChildren<TextMeshProUGUI>(true);
-        for (int i = 0; i < tmps.Length; i++) { tmps[i].text = text; hits++; }
-
-        var ugui = root.GetComponentsInChildren<Text>(true);
-        for (int i = 0; i < ugui.Length; i++) { ugui[i].text = text; hits++; }
-
-        if (hits == 0 && debugLogs)
-            Debug.LogWarning("[Story] El prefab instanciado no tiene TextMeshProUGUI ni Text como hijos.");
-        else if (debugLogs)
-            Debug.Log($"[Story] Etiquetas actualizadas: {hits}.");
+        if (string.IsNullOrEmpty(s)) { firstLine = ""; rest = ""; return; }
+        int idx = s.IndexOf('\n');
+        if (idx < 0) { firstLine = s; rest = ""; }
+        else
+        {
+            firstLine = s.Substring(0, idx).TrimEnd();
+            rest = s.Substring(idx + 1).TrimStart();
+        }
     }
 
-    // Configura anclas/pivote/tamaÒo para que el layout manual funcione
-    void SetupButtonRectForManualLayout(Button btn)
+    void SetupButtonRectCenterAnchored(Button btn)
     {
         var rt = (RectTransform)btn.transform;
-        // Anclado al TOP-LEFT (coordenadas en pixeles con y hacia abajo)
-        rt.anchorMin = new Vector2(0f, 1f);
-        rt.anchorMax = new Vector2(0f, 1f);
-        rt.pivot = new Vector2(0f, 1f);
-        // width lo calculamos luego; aquÌ dejamos una altura base
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 1f);
         rt.sizeDelta = new Vector2(rt.sizeDelta.x, buttonHeight);
 
-        // Asegura un LayoutElement si luego quieres usar layouts mixtos
         var le = btn.GetComponent<LayoutElement>();
         if (!le) le = btn.gameObject.AddComponent<LayoutElement>();
         le.minHeight = buttonHeight;
@@ -165,16 +160,12 @@ public class CustomModeStoryPanel : MonoBehaviour
         le.flexibleHeight = 0f;
     }
 
-    // Apila los botones manualmente con padding/spacing
-    void LayoutButtonsManually()
+    void LayoutButtonsFromCenterDown()
     {
         float panelWidth = PanelRT.rect.width;
-        // Si el rect a˙n no est· listo (p.ej. al entrar en Play), provee un fallback
         if (panelWidth <= 0f) panelWidth = 800f;
 
-        float x = paddingLeft;
-        float y = paddingTop; // comenzamos desde el top dentro del panel
-        float usableWidth = Mathf.Max(0f, panelWidth - paddingLeft - paddingRight);
+        float width = Mathf.Min(panelWidth - sidePadding * 2f, maxButtonsWidth);
 
         for (int i = 0; i < spawnedButtons.Count; i++)
         {
@@ -182,15 +173,49 @@ public class CustomModeStoryPanel : MonoBehaviour
             if (!go) continue;
 
             var rt = (RectTransform)go.transform;
-            // set size (ancho definido por padding, alto fijo)
-            rt.sizeDelta = new Vector2(usableWidth, buttonHeight);
-            // posiciÛn top-left (como anclas y pivot est·n al top-left)
-            rt.anchoredPosition = new Vector2(x, -y);
+            rt.sizeDelta = new Vector2(width, buttonHeight);
 
-            y += buttonHeight + spacing;
+            float y = -firstButtonYOffset - i * (buttonHeight + spacing);
+            rt.anchoredPosition = new Vector2(0f, y);
         }
 
-        if (debugLogs) Debug.Log($"[Story] Layout manual aplicado. botones={spawnedButtons.Count}, ancho={usableWidth}, startY={paddingTop}");
+        if (debugLogs) Debug.Log($"[Story] Layout centro->abajo: {spawnedButtons.Count} botones, width={width}, startOffset={firstButtonYOffset}, spacing={spacing}");
+    }
+
+    void StyleButtonLabelText(Transform root, string text)
+    {
+        if (!root) return;
+
+        var tmps = root.GetComponentsInChildren<TextMeshProUGUI>(true);
+        foreach (var t in tmps)
+        {
+            t.enableAutoSizing = true;
+            t.fontSizeMin = 16;
+            t.fontSizeMax = 28;
+            t.alignment = buttonTextAlign;
+            t.text = text;
+            t.color = buttonTextColor;
+
+            Material mat = t.fontMaterial;
+            if (mat != null)
+            {
+                mat.SetFloat(TMPro.ShaderUtilities.ID_OutlineWidth, buttonOutlineWidth);
+                mat.SetColor(TMPro.ShaderUtilities.ID_OutlineColor, buttonOutlineColor);
+            }
+        }
+
+        var ugui = root.GetComponentsInChildren<Text>(true);
+        foreach (var u in ugui)
+        {
+            u.alignment = TextAnchor.MiddleCenter;
+            u.text = text;
+            u.color = buttonTextColor;
+
+            var shadow = u.gameObject.GetComponent<Shadow>();
+            if (!shadow) shadow = u.gameObject.AddComponent<Shadow>();
+            shadow.effectColor = Color.black;
+            shadow.effectDistance = new Vector2(1f, -1f);
+        }
     }
 
     Button CreateRuntimeButton(string text, Transform parent)
@@ -199,51 +224,53 @@ public class CustomModeStoryPanel : MonoBehaviour
         var rt = (RectTransform)go.transform;
         rt.SetParent(parent, false);
 
-        // Anclado para layout manual (se ajustar· en SetupButtonRectForManualLayout)
-        rt.anchorMin = new Vector2(0f, 1f);
-        rt.anchorMax = new Vector2(0f, 1f);
-        rt.pivot = new Vector2(0f, 1f);
-        rt.sizeDelta = new Vector2(200f, buttonHeight);
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 1f);
+        rt.sizeDelta = new Vector2(300f, buttonHeight);
 
         var img = go.GetComponent<Image>();
-        img.color = new Color(0.18f, 0.18f, 0.18f, 1f);
+        img.type = Image.Type.Sliced;
+        img.color = Color.white;
 
         var tgo = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI));
         var trt = (RectTransform)tgo.transform;
         trt.SetParent(go.transform, false);
         trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
-        trt.offsetMin = new Vector2(12, 8); trt.offsetMax = new Vector2(-12, -8);
+        trt.offsetMin = new Vector2(16, 6); trt.offsetMax = new Vector2(-16, -6);
 
         var tmp = tgo.GetComponent<TextMeshProUGUI>();
+        tmp.enableAutoSizing = true; tmp.fontSizeMin = 16; tmp.fontSizeMax = 28;
+        tmp.alignment = buttonTextAlign;
         tmp.text = text;
-        tmp.fontSize = 22f;
-        tmp.enableAutoSizing = true; tmp.fontSizeMin = 18f; tmp.fontSizeMax = 24f;
-        tmp.alignment = TextAlignmentOptions.MidlineLeft;
+        tmp.color = buttonTextColor;
+
+        Material mat = tmp.fontMaterial;
+        if (mat != null)
+        {
+            mat.SetFloat(TMPro.ShaderUtilities.ID_OutlineWidth, buttonOutlineWidth);
+            mat.SetColor(TMPro.ShaderUtilities.ID_OutlineColor, buttonOutlineColor);
+        }
 
         var btn = go.GetComponent<Button>();
-        var cb = btn.colors;
-        cb.normalColor = img.color;
-        cb.highlightedColor = new Color(0.24f, 0.24f, 0.24f, 1f);
-        cb.pressedColor = new Color(0.15f, 0.15f, 0.15f, 1f);
-        cb.selectedColor = cb.highlightedColor;
-        cb.disabledColor = new Color(0.1f, 0.1f, 0.1f, 0.6f);
-        btn.colors = cb;
-
-        var le = go.AddComponent<LayoutElement>();
-        le.minHeight = buttonHeight; le.preferredHeight = buttonHeight;
-
         return btn;
     }
 
     void OnChoose(CustomModeStoryNode.Option opt)
     {
+        if (_locked) return;
+        _locked = true;
+
         ApplyEffects(opt.effects);
         current = opt.next;
+
         if (debugLogs) Debug.Log($"[Story] Elegida: {opt.text}");
         RenderCurrent();
+
+        if (current != null) _locked = false;
     }
 
-    // === Acumular efectos ===
+    // === Efectos / Final ===
     void ApplyEffects(StoryEffects e)
     {
         if (e == null) return;
@@ -253,13 +280,13 @@ public class CustomModeStoryPanel : MonoBehaviour
         accBatteryDensity += e.batteryDensity;
         accFragmentDensity += e.fragmentDensity;
         accFloors += e.floorsDelta;
+        accMapSizePct += e.mapSizePercent; 
 
         if (e.torchesOnlyStartFew != TriBool.Unset) f_torchesFew = e.torchesOnlyStartFew;
         if (e.enemy2DrainsBattery != TriBool.Unset) f_enemy2Drain = e.enemy2DrainsBattery;
         if (e.enemy3ResistsLight != TriBool.Unset) f_enemy3Resist = e.enemy3ResistsLight;
     }
 
-    // === Terminar y aplicar perfil ===
     void FinishAndApply()
     {
         var p = ScriptableObject.CreateInstance<CustomModeProfile>();
@@ -268,6 +295,11 @@ public class CustomModeStoryPanel : MonoBehaviour
         p.batteryDrainMul = Mathf.Clamp(1f + accBatteryDrain, mulMin, mulMax);
         p.batteryDensityMul = Mathf.Clamp(1f + accBatteryDensity, mulMin, mulMax);
         p.fragmentDensityMul = Mathf.Clamp(1f + accFragmentDensity, mulMin, mulMax);
+
+        // Tama√±o del mapa: 1 + porcentaje acumulado
+        p.mapSizeMul = Mathf.Clamp(1f + accMapSizePct, mapMulMin, mapMulMax);
+        p.maxMapSize = 49; 
+
         p.targetFloors = Mathf.Clamp(3 + accFloors, floorsMin, floorsMax);
 
         if (f_torchesFew != TriBool.Unset) p.torchesOnlyStartFew = (f_torchesFew == TriBool.True);
@@ -277,6 +309,16 @@ public class CustomModeStoryPanel : MonoBehaviour
         if (CustomModeRuntime.Instance == null)
             new GameObject("CustomModeRuntime").AddComponent<CustomModeRuntime>();
         CustomModeRuntime.Instance.SetProfile(p);
+
+        if (debugLogs)
+        {
+            Debug.Log($"[Story] Perfil final -> " +
+                $"enemyStatMul={p.enemyStatMul:F2}, enemyDensityMul={p.enemyDensityMul:F2}, " +
+                $"batteryDrainMul={p.batteryDrainMul:F2}, batteryDensityMul={p.batteryDensityMul:F2}, " +
+                $"fragmentDensityMul={p.fragmentDensityMul:F2}, mapSizeMul={p.mapSizeMul:F2}, " +
+                $"maxMapSize={p.maxMapSize}, targetFloors={p.targetFloors}, " +
+                $"flags: torchesFew={p.torchesOnlyStartFew}, e2Drain={p.enemy2DrainsBattery}, e3Resist={p.enemy3ResistsLight}");
+        }
 
         if (GameManager.Instance) GameManager.Instance.StartCustomMode();
 
@@ -293,6 +335,7 @@ public class CustomModeStoryPanel : MonoBehaviour
     {
         accEnemyStat = accEnemyDensity = accBatteryDrain = accBatteryDensity = accFragmentDensity = 0f;
         accFloors = 0;
+        accMapSizePct = 0f; // ‚Üê NUEVO
         f_torchesFew = f_enemy2Drain = f_enemy3Resist = TriBool.Unset;
     }
 }

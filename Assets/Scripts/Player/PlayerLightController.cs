@@ -36,6 +36,13 @@ public class PlayerLightController : MonoBehaviour
     public Color legacyColor = Color.white;
     [Range(1f, 20f)] public float colorLerpSpeed = 8f;
 
+    [Header("Audio Linterna")]
+    public AudioClip soundOn;
+    public AudioClip soundOff;
+    public float volume = 1f;
+
+    private AudioSource audioSrc;
+
     private Light lamp;
     private bool isOn = true;
     private Coroutine blinkRoutine;
@@ -58,13 +65,35 @@ public class PlayerLightController : MonoBehaviour
         RenderSettings.ambientIntensity = 0.1f;
 
         currentBattery = maxBattery; // legacy
+
+
         batteries = GetComponent<PlayerBatterySystem>();
+        if (batteries == null) batteries = GetComponentInParent<PlayerBatterySystem>();
+        if (batteries == null) batteries = FindObjectOfType<PlayerBatterySystem>();
 
         currentLightColor = legacyColor;
         lamp.color = currentLightColor;
 
         if (playerCamera == null)
             Debug.LogError("Asigna la Main Camera al PlayerLightController.");
+
+        audioSrc = GetComponent<AudioSource>();
+        if (!audioSrc) audioSrc = gameObject.AddComponent<AudioSource>();
+        audioSrc.playOnAwake = false;
+        audioSrc.spatialBlend = 0f; // 2D
+    }
+
+    void Start()
+    {
+
+        if (batteries != null)
+        {
+            OnBatterySwitched(batteries.activeType);
+        }
+        else
+        {
+            
+        }
     }
 
     void Update()
@@ -72,7 +101,10 @@ public class PlayerLightController : MonoBehaviour
         if (playerCamera == null) return;
 
         if (Input.GetKeyDown(toggleKey))
+        {
             isOn = !isOn;
+            PlayToggleSound(isOn);
+        }
 
         if (GetBatteryNormalized() <= 0f)
             isOn = false;
@@ -100,11 +132,11 @@ public class PlayerLightController : MonoBehaviour
             }
             else
             {
-                // Flicker y alcance
+  
                 float t = 0.5f + 0.5f * Mathf.PerlinNoise(Time.time * flickerSpeed, 0f);
                 lamp.range = Mathf.Lerp(minRange, maxRange, t);
 
-                // Intensidad según % batería
+
                 float tBattery = GetBatteryNormalized();
                 lamp.intensity = Mathf.Lerp(baseIntensity * 0.6f, baseIntensity, tBattery);
 
@@ -119,10 +151,9 @@ public class PlayerLightController : MonoBehaviour
                     lamp.enabled = true;
                 }
 
-                // Tinte según batería activa
+      
                 UpdateTintByBattery();
 
-                // Efecto sobre enemigos
                 AffectEnemiesInLight();
             }
         }
@@ -132,10 +163,17 @@ public class PlayerLightController : MonoBehaviour
             lamp.enabled = false;
         }
 
-        // Seguir a la cámara
+
         transform.position = playerCamera.transform.position +
                              playerCamera.transform.TransformVector(localOffset);
         transform.rotation = playerCamera.transform.rotation;
+    }
+
+    private void PlayToggleSound(bool turningOn)
+    {
+        if (!audioSrc) return;
+        AudioClip clip = turningOn ? soundOn : soundOff;
+        if (clip) audioSrc.PlayOneShot(clip, volume);
     }
 
     private void UpdateTintByBattery()
@@ -150,6 +188,7 @@ public class PlayerLightController : MonoBehaviour
                 case BatteryType.Blue: target = blueColor; break;
             }
         }
+
         currentLightColor = Color.Lerp(currentLightColor, target, Time.deltaTime * colorLerpSpeed);
         lamp.color = currentLightColor;
     }
@@ -197,13 +236,12 @@ public class PlayerLightController : MonoBehaviour
         }
     }
 
-    // ------- API / Utils -------
 
     public float GetBatteryNormalized()
     {
         if (batteries != null)
             return batteries.GetActiveBatteryNormalized();
-        return maxBattery > 0f ? currentBattery / maxBattery : 0f;
+        return maxBattery > 0 ? currentBattery / maxBattery : 0f;
     }
 
     public bool IsOn() => isOn;
@@ -215,7 +253,7 @@ public class PlayerLightController : MonoBehaviour
         if (GetBatteryNormalized() > 0f) isOn = true;
     }
 
-    // Compatibilidad con pickups legacy
+
     public void RechargeBattery(float amount)
     {
         if (batteries != null) return;
@@ -227,5 +265,19 @@ public class PlayerLightController : MonoBehaviour
     {
         if (lamp != null) lamp.color = newColor;
         currentLightColor = newColor;
+    }
+
+    public void OnBatterySwitched(BatteryType newType)
+    {
+        Color target = legacyColor;
+        switch (newType)
+        {
+            case BatteryType.Green: target = greenColor; break;
+            case BatteryType.Red: target = redColor; break;
+            case BatteryType.Blue: target = blueColor; break;
+        }
+        currentLightColor = target;
+        if (lamp != null) lamp.color = currentLightColor;
+    
     }
 }

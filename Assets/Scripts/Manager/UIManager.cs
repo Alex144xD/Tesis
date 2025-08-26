@@ -22,7 +22,9 @@ public class UIManager : MonoBehaviour
     public int overlaySortingOrder = 800;
 
     [Header("Canvases protegidos (opcional)")]
-    public Canvas[] guardedCanvases; // Si lo dejas vacío, se auto-llenará
+    public Canvas[] guardedCanvases; 
+    [Header("HUD auto ON por escena (nombres exactos, case-insensitive)")]
+    public string[] hudEnabledScenes = new string[] { "Game", "Tutorial" };
 
     void Awake()
     {
@@ -38,7 +40,6 @@ public class UIManager : MonoBehaviour
 
             EnsureEventSystem();
 
-            // Validación inicial: que no hayan asignado un Canvas como "panel"
             ValidateNotCanvas("victoryScreen", victoryScreen);
             ValidateNotCanvas("defeatScreen", defeatScreen);
             ValidateNotCanvas("pauseScreen", pauseScreen);
@@ -47,9 +48,12 @@ public class UIManager : MonoBehaviour
             SafeHide(victoryScreen);
             SafeHide(defeatScreen);
             SafeHide(pauseScreen);
-            if (hudRoot) hudRoot.SetActive(true);
 
             AutoFillGuardedCanvasesIfEmpty();
+
+
+            RebindIfMissing();
+            ApplyHUDVisibilityForScene(SceneManager.GetActiveScene());
         }
         else
         {
@@ -59,7 +63,7 @@ public class UIManager : MonoBehaviour
 
     void LateUpdate()
     {
-        // Guardia: si algún script apagó un Canvas, lo reactivamos y lo reportamos
+
         if (guardedCanvases == null) return;
         for (int i = 0; i < guardedCanvases.Length; i++)
         {
@@ -79,7 +83,13 @@ public class UIManager : MonoBehaviour
         }
     }
 
-    // ---------- API ----------
+    public void PreSceneChangeCleanup()
+    {
+        HidePanel(victoryScreen);
+        HidePanel(defeatScreen);
+        HidePanel(pauseScreen);
+    }
+
     public void ShowVictoryScreen()
     {
         RebindIfMissing();
@@ -107,11 +117,10 @@ public class UIManager : MonoBehaviour
     public void HidePauseScreen()
     {
         RebindIfMissing();
-        HidePanel(pauseScreen);
-        if (hudRoot) hudRoot.SetActive(true);
+
+        ApplyHUDVisibilityForScene(SceneManager.GetActiveScene());
     }
 
-    // ---------- Helpers ----------
     void HideAllExcept(GameObject except)
     {
         if (victoryScreen && victoryScreen != except) HidePanel(victoryScreen);
@@ -232,7 +241,15 @@ public class UIManager : MonoBehaviour
     {
         RebindIfMissing();
         EnsureEventSystem();
-        AutoFillGuardedCanvasesIfEmpty(); // por si cambian de escena
+        AutoFillGuardedCanvasesIfEmpty(); 
+
+  
+        SafeHide(victoryScreen);
+        SafeHide(defeatScreen);
+        SafeHide(pauseScreen);
+
+ 
+        ApplyHUDVisibilityForScene(s);
     }
 
     void RebindIfMissing()
@@ -240,9 +257,17 @@ public class UIManager : MonoBehaviour
         if (!victoryScreen) victoryScreen = GameObject.Find("VictoryScreen");
         if (!defeatScreen) defeatScreen = GameObject.Find("DefeatScreen");
         if (!pauseScreen) pauseScreen = GameObject.Find("PauseScreen");
-        if (!hudRoot) hudRoot = GameObject.Find("HUD");
 
-        // Validar otra vez por si fueron reasignados mal
+     
+        if (!hudRoot)
+        {
+            hudRoot = GameObject.Find("HUD");
+            if (!hudRoot) hudRoot = GameObject.Find("GameplayHUD");             
+            if (!hudRoot) hudRoot = GameObject.FindWithTag("HUD");              
+            if (!hudRoot) hudRoot = GameObject.FindWithTag("GameplayHUD");      
+        }
+
+
         ValidateNotCanvas("victoryScreen", victoryScreen);
         ValidateNotCanvas("defeatScreen", defeatScreen);
         ValidateNotCanvas("pauseScreen", pauseScreen);
@@ -253,11 +278,10 @@ public class UIManager : MonoBehaviour
     bool IsCanvasRoot(GameObject go)
     {
         if (!go) return false;
-        // Consideramos Canvas raíz si tiene Canvas y NO tiene Canvas padre
         var c = go.GetComponent<Canvas>();
         if (!c) return false;
         var parentCanvas = go.GetComponentInParent<Canvas>(true);
-        return c && (parentCanvas == c); // ese Canvas es el más alto de su cadena
+        return c && (parentCanvas == c);
     }
 
     void ValidateNotCanvas(string fieldName, GameObject go)
@@ -274,5 +298,38 @@ public class UIManager : MonoBehaviour
         guardedCanvases = FindObjectsOfType<Canvas>(true);
         if (debugLogs)
             Debug.Log($"[UIManager] Canvases protegidos: {guardedCanvases.Length}");
+    }
+
+  
+    void ApplyHUDVisibilityForScene(Scene s)
+    {
+        RebindIfMissing(); 
+
+        if (!hudRoot) return;
+
+        bool show = IsHudEnabledForSceneName(s.name);
+        if (debugLogs)
+            Debug.Log($"[UIManager] Escena '{s.name}' -> HUD {(show ? "ON" : "OFF")}");
+
+        hudRoot.SetActive(show);
+
+        if (show)
+        {
+            var canvas = hudRoot.GetComponent<Canvas>();
+            if (canvas != null && !canvas.enabled) canvas.enabled = true;
+        }
+    }
+
+    bool IsHudEnabledForSceneName(string sceneName)
+    {
+        if (hudEnabledScenes == null || hudEnabledScenes.Length == 0) return false;
+        for (int i = 0; i < hudEnabledScenes.Length; i++)
+        {
+            var target = hudEnabledScenes[i];
+            if (string.IsNullOrEmpty(target)) continue;
+            if (string.Equals(sceneName, target, System.StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 }

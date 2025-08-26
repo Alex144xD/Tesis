@@ -1,9 +1,8 @@
-// Tu MouseLook original + 1 línea para factor global
 using UnityEngine;
 
 public class MouseLook : MonoBehaviour
 {
-    public float mouseSensitivity = 100f;   // sensibilidad base (tu valor)
+    public float mouseSensitivity = 100f;   
     public Transform playerBody;
 
     private float xRotation = 0f;
@@ -15,7 +14,6 @@ public class MouseLook : MonoBehaviour
 
     void Update()
     {
-        // LEE el factor global (0.1..3) del slider
         float sensFactor = PlayerPrefs.GetFloat("opt_mouseSens", 1f);
 
         float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity * sensFactor * Time.deltaTime;

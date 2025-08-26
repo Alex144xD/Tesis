@@ -12,29 +12,37 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f184eefd3806f2140a41f73b08f34cf2, type: 3}
   m_Name: Veredicto
   m_EditorClassIdentifier: 
-  narrative: "El veredicto cae como ancla. Tu camino est\xE1 trazado."
+  narrative: "Las figuras se ponen de pie, y por primera vez parecen tener forma.
+    La llama azul crepita como si dictara sentencia.\n\n\u2014El juicio ha terminado.\n\nSus
+    voces se funden en una sola, grave y profunda, que resuena como un ancla al caer
+    al fondo del mar.\n\n\u2014Tu camino est\xE1 trazado\u2026 tus decisiones ya
+    no se pueden deshacer. El barco ha zarpado y las olas sellar\xE1n tu destino.\n\nUn
+    \xFAltimo silencio los envuelve, y la luz azul comienza a desvanecerse.\n\n\u2014Buena
+    suerte, capit\xE1n\u2026"
   options:
   - text: "\u201CAcepto la redenci\xF3n.\u201D"
     effects:
-      enemyStat: 0
-      enemyDensity: 0
-      batteryDrain: 0
-      batteryDensity: 0
+      enemyStat: -0.08
+      enemyDensity: -0.05
+      batteryDrain: -0.08
+      batteryDensity: 0.08
       fragmentDensity: 0
-      floorsDelta: 0
+      floorsDelta: -1
+      mapSizePercent: -0.08
       torchesOnlyStartFew: 0
       enemy2DrainsBattery: 0
       enemy3ResistsLight: 0
     next: {fileID: 0}
   - text: "\u201CDesaf\xEDo al abismo.\u201D"
     effects:
-      enemyStat: 0
-      enemyDensity: 0
-      batteryDrain: 0
-      batteryDensity: 0
-      fragmentDensity: 0
-      floorsDelta: 0
+      enemyStat: 0.12
+      enemyDensity: 0.1
+      batteryDrain: 0.08
+      batteryDensity: -0.08
+      fragmentDensity: 0.1
+      floorsDelta: 2
+      mapSizePercent: 0.1
       torchesOnlyStartFew: 0
-      enemy2DrainsBattery: 0
-      enemy3ResistsLight: 0
+      enemy2DrainsBattery: 1
+      enemy3ResistsLight: 1
     next: {fileID: 0}
