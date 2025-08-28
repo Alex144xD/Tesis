@@ -755,7 +755,6 @@ public class EnemyFSM : MonoBehaviour
         return nudge;
     }
 
-    // ================== UTILIDADES VARIAS ==================
 
     void RecoverFromStuck()
     {

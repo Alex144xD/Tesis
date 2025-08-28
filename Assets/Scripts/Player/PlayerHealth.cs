@@ -39,9 +39,10 @@ public class PlayerHealth : MonoBehaviour, IDamageable
         if (info.amount <= 0f) return;
         TakeDamage(info.amount);
         onDamaged?.Invoke(info.amount, info.source);
+        
     }
 
-    // Compatibilidad con llamadas antiguas
+  
     public void TakeDamage(float amount)
     {
         if (isDead) return;
@@ -53,6 +54,7 @@ public class PlayerHealth : MonoBehaviour, IDamageable
 
         onHealthChanged?.Invoke(currentHealth, maxHealth);
         CheckPlayerDeath();
+        CameraShake.instance.Shake(0.3f, 0.3f);
     }
 
     void EnableRegen() => canRegen = true;
