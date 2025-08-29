@@ -8,6 +8,10 @@ public class EnemyFSM : MonoBehaviour
     public enum EnemyState { Idle, Patrol, Chase, Attack, Flee }
     public enum EnemyKind { Basic, Heavy, Runner }
 
+    // === Qué baterías espantan a este enemigo (configurable en Inspector) ===
+    [System.Flags]
+    public enum ScareMask { None = 0, Green = 1, Red = 2, Blue = 4 }
+
     [Header("Tipo de enemigo")]
     public EnemyKind kind = EnemyKind.Basic;
 
@@ -41,8 +45,8 @@ public class EnemyFSM : MonoBehaviour
     [Tooltip("Nombre exacto del estado Attack en tu Animator Controller.")]
     [SerializeField] string attackState = "root|Anim_monster_scavenger_attack";
 
-    int _lastAnimHash = 0;    // cache del último pedido de anim
-    int _targetAnimHash = 0;  // sólo informativo/debug
+    int _lastAnimHash = 0;
+    int _targetAnimHash = 0;
     // ================================================================================
 
     [Header("Detección")]
@@ -64,8 +68,8 @@ public class EnemyFSM : MonoBehaviour
     public float turnSpeedDeg = 540f;
 
     [Header("Gravedad")]
-    public float gravity = 18f;          // algo más alto para pegarlo
-    public float groundSnap = 2f;        // empuje extra hacia abajo
+    public float gravity = 18f;
+    public float groundSnap = 2f;
     private float verticalVel = 0f;
 
     [Header("Daño")]
@@ -109,8 +113,8 @@ public class EnemyFSM : MonoBehaviour
     public bool enableAudio = true;
     [Tooltip("Único clip que sonará en loop cuando camine/corra/ataque/huya.")]
     public AudioClip monsterLoop;
-    [Range(0f, 1f)] public float loopVolumeIdle = 0f;   // 0 = apagado en Idle
-    [Range(0f, 1f)] public float loopVolumeActive = 0.6f; // Walk/Run/Attack/Flee
+    [Range(0f, 1f)] public float loopVolumeIdle = 0f;
+    [Range(0f, 1f)] public float loopVolumeActive = 0.6f;
     public float loopPitch = 1.0f;
     [Tooltip("Pequeño aleatorio de pitch ± este valor.")]
     public float pitchJitter = 0.03f;
@@ -118,7 +122,7 @@ public class EnemyFSM : MonoBehaviour
     public float loopFade = 0.08f;
     [Tooltip("Audio 3D (1) o 2D (0).")]
     public bool spatial3D = true;
-    public float spatialBlend = 1f; // 1 = 3D, 0 = 2D
+    public float spatialBlend = 1f;
     public float minDistance = 3f;
     public float maxDistance = 25f;
     public AudioRolloffMode rolloff = AudioRolloffMode.Linear;
@@ -155,10 +159,58 @@ public class EnemyFSM : MonoBehaviour
     // deslizamiento
     private Vector3 lastHitNormal = Vector3.zero;
     private float lastHitTime = -999f;
-    public float hitMemory = 0.15f; // ventana para usar la normal
+    public float hitMemory = 0.15f;
 
     // jitter por agente
     private int myId;
+
+    // ===================== LUZ / ESPANTO (exposición) =====================
+    [Header("Luz y Espanto")]
+    public ScareMask scareByBatteries = ScareMask.Green;   // qué baterías lo espantan
+    public bool requireHighModeForScare = false;           // si exige HIGH (útil para Heavy)
+    public bool lowModeCanScare = true;                    // si LOW puede espantar
+    public float requiredExposure = 1.0f;                  // umbral base para espantar
+    public float requiredExposureLowMultiplier = 2.0f;     // LOW requiere más tiempo
+    public float exposurePerSecondHigh = 1.0f;             // carga por segundo en HIGH
+    public float exposurePerSecondLow = 0.5f;              // carga por segundo en LOW
+    public float exposureDecayPerSecond = 0.7f;            // pierde progreso fuera de luz
+    public float scareCooldown = 3.0f;                     // ventana inmune tras espantar
+    public float postScareImmunity = 1.0f;                 // inmunidad adicional
+
+    [Header("Efecto LOW cuando no espanta")]
+    public bool lowModeAppliesSlow = true;
+    [Range(0.2f, 1f)] public float lowSlowFactor = 0.75f;  // reducción de velocidad bajo LOW si no espanta
+    public float lowSlowDuration = 0.3f;                    // cuánto dura el slow tras recibir LOW
+
+    [Header("Bonos y multiplicadores")]
+    [Range(0f, 1f)] public float centerBonusFactor = 0.25f; // +25% si está centrado en el cono
+    public float greenBatteryMult = 1.15f;
+    public float redBatteryMult = 1.25f;
+    public float blueBatteryMult = 1.10f;
+
+    // ===== BALANCE por tipo (velocidad/daño) =====
+    [Header("Balance automático por tipo")]
+    public bool useKindAutoStats = true;   // ON: aplica stats por tipo en Start()
+    [Range(0.4f, 1.25f)] public float globalSpeedScale = 0.80f; // baja todo fácil
+
+    [Header("Stats por tipo (baseline)")]
+    public float basicPatrol = 1.6f, basicChase = 2.4f, basicDamage = 10f; // normal
+    public float heavyPatrol = 1.1f, heavyChase = 1.6f, heavyDamage = 14f; // más lento, +daño
+    public float runnerPatrol = 2.6f, runnerChase = 3.8f, runnerDamage = 6f;  // más rápido, -daño
+
+    // ===== Reglas de espanto específicas =====
+    [Header("Reglas de espanto específicas por tipo")]
+    [Tooltip("EnemyKind.Basic: solo LOW espanta (HIGH no)")]
+    public bool basicOnlyLowScares = true;
+
+    [Tooltip("Multiplicador extra para el tiempo necesario con LOW en Basic.")]
+    public float basicLowRequiredMultiplier = 2.8f; // 2.5–3 recomendado
+
+    // runtime exposición/slow
+    private float exposure = 0f;
+    private float scareLockUntil = -999f;
+    private float slowTimer = 0f;
+    private float lastLightHitTime = -999f;
 
     void Awake()
     {
@@ -166,7 +218,6 @@ public class EnemyFSM : MonoBehaviour
         if (!animator) animator = GetComponent<Animator>();
         if (!animator) animator = GetComponentInChildren<Animator>(true);
 
-        // Config Animator seguro
         if (animator)
         {
             animator.applyRootMotion = false;
@@ -177,7 +228,6 @@ public class EnemyFSM : MonoBehaviour
                 animator.SetLayerWeight(animLayer, 1f);
         }
 
-        // AudioSource único (loop)
         if (enableAudio)
         {
             loopSrc = gameObject.AddComponent<AudioSource>();
@@ -219,7 +269,31 @@ public class EnemyFSM : MonoBehaviour
         lastSeenPos = transform.position;
         lastSeenTimer = 0f;
 
-        // Arranca loop silenciado (Idle)
+        // === Aplicar stats por tipo ===
+        if (useKindAutoStats)
+        {
+            switch (kind)
+            {
+                case EnemyKind.Basic:
+                    patrolSpeed = basicPatrol;
+                    chaseSpeed = basicChase;
+                    attackDamage = basicDamage;
+                    break;
+                case EnemyKind.Heavy:
+                    patrolSpeed = heavyPatrol;
+                    chaseSpeed = heavyChase;
+                    attackDamage = heavyDamage;
+                    break;
+                case EnemyKind.Runner:
+                    patrolSpeed = runnerPatrol;
+                    chaseSpeed = runnerChase;
+                    attackDamage = runnerDamage;
+                    break;
+            }
+            patrolSpeed *= globalSpeedScale;
+            chaseSpeed *= globalSpeedScale;
+        }
+
         UpdateLoopByLogical("Idle");
     }
 
@@ -240,6 +314,13 @@ public class EnemyFSM : MonoBehaviour
 
     void Update()
     {
+        // Decaimiento de exposición si no recibe luz recientemente
+        if (Time.time - lastLightHitTime > 0.05f)
+            DecayExposure(Time.deltaTime);
+
+        // Tick del slow si fue aplicado por LOW
+        if (slowTimer > 0f) slowTimer -= Time.deltaTime;
+
         switch (currentState)
         {
             case EnemyState.Idle: StateIdle(); break;
@@ -249,7 +330,6 @@ public class EnemyFSM : MonoBehaviour
             case EnemyState.Flee: StateFlee(); break;
         }
 
-        // anti-atascos por poco desplazamiento
         stuckTimer += Time.deltaTime;
         if ((transform.position - lastPos).sqrMagnitude > minMoveSqr)
         {
@@ -276,7 +356,7 @@ public class EnemyFSM : MonoBehaviour
     void StatePatrol()
     {
         SetAnimation("Walk");
-        MoveAlongPath(patrolSpeed);
+        MoveAlongPath(patrolSpeed * GetCurrentSpeedMultiplier());
 
         if (UpdatePlayerSensing())
         {
@@ -323,7 +403,7 @@ public class EnemyFSM : MonoBehaviour
             lastChaseTargetWorld = target;
         }
 
-        MoveAlongPath(chaseSpeed);
+        MoveAlongPath(chaseSpeed * GetCurrentSpeedMultiplier());
         FaceTowardsPathOrPlayer();
 
         if (player && seesNow && Vector3.Distance(transform.position, player.position) <= attackRange)
@@ -355,7 +435,7 @@ public class EnemyFSM : MonoBehaviour
             dir += ComputeSeparationLimited() * separationForce;
             dir.y = 0f;
             dir = dir.normalized;
-            SlideMove(dir * (chaseSpeed * 0.5f));
+            SlideMove(dir * (chaseSpeed * 0.5f * GetCurrentSpeedMultiplier()));
         }
 
         FaceTarget(player.position, 1f);
@@ -376,7 +456,7 @@ public class EnemyFSM : MonoBehaviour
     void StateFlee()
     {
         SetAnimation("Run");
-        MoveAlongPath(chaseSpeed * 1.3f);
+        MoveAlongPath(chaseSpeed * 1.3f * GetCurrentSpeedMultiplier());
         FaceTowardsPathOrPlayer();
 
         if (!player) { ApplyGravity(); return; }
@@ -427,7 +507,6 @@ public class EnemyFSM : MonoBehaviour
 
         SlideMove(dir * speed);
 
-        // Girar hacia dirección de avance
         FaceDirection(dir, 1f);
 
         if (map != null)
@@ -507,7 +586,7 @@ public class EnemyFSM : MonoBehaviour
     {
         if (controller.isGrounded)
         {
-            verticalVel = -groundSnap; // pegado al suelo
+            verticalVel = -groundSnap;
         }
         else
         {
@@ -545,6 +624,7 @@ public class EnemyFSM : MonoBehaviour
         RecalcPathTo(target);
     }
 
+    // ====== LEGACY: mantiene comportamiento anterior para compat ======
     public void OnFlashlightHit()
     {
         if (currentState != EnemyState.Flee)
@@ -552,6 +632,7 @@ public class EnemyFSM : MonoBehaviour
             ClearReservedCell();
             currentState = EnemyState.Flee;
             ChooseFleeDestination();
+            LockScare(); // añade cooldown a nuevo sistema también
         }
     }
 
@@ -569,7 +650,135 @@ public class EnemyFSM : MonoBehaviour
             ClearReservedCell();
             currentState = EnemyState.Flee;
             ChooseFleeDestination();
+            LockScare();
         }
+    }
+
+    // ====== NUEVO: Handler detallado con modo/batería/exposición ======
+    public void OnFlashlightHitDetailed(BatteryType battery, PlayerLightController.FlashlightUIMode mode, float dt, float intensity01)
+    {
+        if (Time.time < scareLockUntil) return;
+
+        lastLightHitTime = Time.time;
+
+        // 1) ¿Esta batería puede espantar a este enemigo?
+        bool batteryAllowed =
+            ((battery == BatteryType.Green) && (scareByBatteries & ScareMask.Green) != 0) ||
+            ((battery == BatteryType.Red) && (scareByBatteries & ScareMask.Red) != 0) ||
+            ((battery == BatteryType.Blue) && (scareByBatteries & ScareMask.Blue) != 0);
+
+        if (!batteryAllowed)
+        {
+            if (mode == PlayerLightController.FlashlightUIMode.Low && lowModeAppliesSlow)
+                ApplyLowSlow(dt);
+            return; // no acumula exposición
+        }
+
+        // 2) Reglas especiales por tipo
+        // BASIC: solo LOW espanta (HIGH no acumula)
+        if (kind == EnemyKind.Basic && basicOnlyLowScares)
+        {
+            if (mode == PlayerLightController.FlashlightUIMode.High)
+            {
+                if (lowModeAppliesSlow) ApplyLowSlow(dt);
+                return;
+            }
+        }
+
+        // 3) ¿Exige HIGH (p.ej., Heavy)? si sí y estás en LOW, no acumula
+        if (requireHighModeForScare && mode != PlayerLightController.FlashlightUIMode.High)
+        {
+            if (lowModeAppliesSlow) ApplyLowSlow(dt);
+            return;
+        }
+
+        // 4) Calcular rate/umbral
+        float rate = 0f;
+        float req = requiredExposure;
+
+        if (mode == PlayerLightController.FlashlightUIMode.High)
+        {
+            rate = exposurePerSecondHigh;
+        }
+        else if (mode == PlayerLightController.FlashlightUIMode.Low)
+        {
+            if (!lowModeCanScare)
+            {
+                if (lowModeAppliesSlow) ApplyLowSlow(dt);
+                return;
+            }
+            rate = exposurePerSecondLow;
+            req *= requiredExposureLowMultiplier;
+
+            // BASIC: LOW requiere aún más tiempo (multiplicador extra)
+            if (kind == EnemyKind.Basic && basicOnlyLowScares)
+                req *= Mathf.Max(1f, basicLowRequiredMultiplier);
+        }
+        else
+        {
+            return; // Off
+        }
+
+        // 5) Bonus por centrado del cono (0..1)
+        float centerBonus = 1f + (centerBonusFactor * Mathf.Clamp01(intensity01));
+
+        // 6) Multiplicador por batería
+        float batteryMult = 1f;
+        switch (battery)
+        {
+            case BatteryType.Green: batteryMult = greenBatteryMult; break;
+            case BatteryType.Red: batteryMult = redBatteryMult; break;
+            case BatteryType.Blue: batteryMult = blueBatteryMult; break;
+        }
+
+        // 7) Acumular exposición
+        exposure += rate * dt * batteryMult * centerBonus;
+
+        // 8) ¿umbral alcanzado?
+        if (exposure >= req)
+        {
+            Scare();
+            exposure = 0f;
+            LockScare();
+        }
+        else
+        {
+            // opcional: cue de "casi espantado" cerca del 80% del umbral
+            // if (exposure >= 0.8f * req) PlayAlmostScaredCue();
+        }
+    }
+
+    private void DecayExposure(float dt)
+    {
+        if (exposure <= 0f) return;
+        exposure = Mathf.Max(0f, exposure - (exposureDecayPerSecond * dt));
+    }
+
+    private void ApplyLowSlow(float dt)
+    {
+        slowTimer = Mathf.Max(slowTimer, lowSlowDuration);
+        // aquí puedes reducir detección/otras stats temporalmente si quieres
+    }
+
+    private float GetCurrentSpeedMultiplier()
+    {
+        return (slowTimer > 0f) ? lowSlowFactor : 1f;
+    }
+
+    private void LockScare()
+    {
+        scareLockUntil = Time.time + Mathf.Max(scareCooldown, postScareImmunity);
+    }
+
+    private void Scare()
+    {
+        if (currentState != EnemyState.Flee)
+        {
+            ClearReservedCell();
+            currentState = EnemyState.Flee;
+            ChooseFleeDestination();
+        }
+        // Hook SFX/FX aquí si quieres
     }
 
     private void ChooseFleeDestination()
@@ -755,7 +964,6 @@ public class EnemyFSM : MonoBehaviour
         return nudge;
     }
 
-
     void RecoverFromStuck()
     {
         if (currentState == EnemyState.Chase && (PlayerHasLOS() || lastSeenTimer > 0f))
@@ -821,7 +1029,6 @@ public class EnemyFSM : MonoBehaviour
 
         PlayAnimOnce(stateName);
 
-        // Audio del loop según estado lógico
         UpdateLoopByLogical(state);
     }
 
@@ -873,7 +1080,6 @@ public class EnemyFSM : MonoBehaviour
             loopSrc.Play();
         }
 
-        // Fade al volumen objetivo
         if (loopFadeCo != null) StopCoroutine(loopFadeCo);
         loopFadeCo = StartCoroutine(FadeLoopTo(targetVol, loopFade));
     }
@@ -890,7 +1096,6 @@ public class EnemyFSM : MonoBehaviour
         }
         loopSrc.volume = target;
 
-        // si el objetivo es 0, podemos dejarlo sonando bajito (0) o pararlo
         if (Mathf.Approximately(target, 0f))
             loopSrc.Stop();
 

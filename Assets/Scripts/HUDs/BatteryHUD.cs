@@ -6,14 +6,15 @@ using TMPro;
 public class BatteryHUD : MonoBehaviour
 {
     [Header("Refs")]
-    public PlayerLightController flashlight;    
-    public PlayerBatterySystem batteries;        
+    public PlayerLightController flashlight;
+    public PlayerBatterySystem batteries;
+
     [Header("UI")]
-    public Image fillImage;                     
-    public Image backgroundImage;             
-    public TextMeshProUGUI percentText;      
-    public TextMeshProUGUI secondsText;          
-    public CanvasGroup hudGroup;                 
+    public Image fillImage;
+    public Image backgroundImage;
+    public TextMeshProUGUI percentText;
+    public TextMeshProUGUI secondsText;
+    public CanvasGroup hudGroup;
 
     [Header("Visibilidad")]
     [Tooltip("Oculta el HUD cuando la linterna está apagada.")]
@@ -24,13 +25,13 @@ public class BatteryHUD : MonoBehaviour
     [Range(0f, 0.1f)] public float emptyEpsilon = 0.01f;
 
     [Header("Umbrales (0..1)")]
-    [Range(0f, 1f)] public float lowThreshold = 0.50f;     
-    [Range(0f, 1f)] public float criticalThreshold = 0.20f; 
+    [Range(0f, 1f)] public float lowThreshold = 0.50f;
+    [Range(0f, 1f)] public float criticalThreshold = 0.20f;
 
     [Header("Colores (fijos por nivel)")]
-    public Color colorHigh = new Color32(80, 255, 140, 255);  
-    public Color colorMid = new Color32(250, 210, 60, 255);  
-    public Color colorLow = new Color32(235, 70, 70, 255);  
+    public Color colorHigh = new Color32(80, 255, 140, 255);
+    public Color colorMid = new Color32(250, 210, 60, 255);
+    public Color colorLow = new Color32(235, 70, 70, 255);
 
     [Header("Suavizado")]
     public bool smoothFill = true;
@@ -38,7 +39,7 @@ public class BatteryHUD : MonoBehaviour
 
     [Header("Depuración")]
     public bool debugLogs = false;
-    public bool preferFlashlightWhenBoth = true; 
+    public bool preferFlashlightWhenBoth = true;
 
     float currentFill = 1f;
 
@@ -66,28 +67,32 @@ public class BatteryHUD : MonoBehaviour
     {
         if (!isActiveAndEnabled || fillImage == null) return;
 
-
+        // Reasegurar refs en tiempo de ejecución si algo se recarga
         if (!flashlight) flashlight = FindObjectOfType<PlayerLightController>(true);
         if (!batteries) batteries = FindObjectOfType<PlayerBatterySystem>(true);
 
         float t = GetBatteryNormalizedSmart();
 
- 
+        // Fill con suavizado opcional
         currentFill = smoothFill
             ? Mathf.Lerp(currentFill, t, Time.unscaledDeltaTime * Mathf.Max(0.01f, fillLerpSpeed))
             : t;
 
         fillImage.fillAmount = currentFill;
 
-
+        // Colores por nivel
         float v = currentFill;
-        if (v <= criticalThreshold) fillImage.color = colorLow;    
-        else if (v <= lowThreshold) fillImage.color = colorMid;    
-        else fillImage.color = colorHigh;                          
+        if (v <= criticalThreshold) fillImage.color = colorLow;
+        else if (v <= lowThreshold) fillImage.color = colorMid;
+        else fillImage.color = colorHigh;
+
+        // % texto
         if (percentText) percentText.text = Mathf.RoundToInt(v * 100f) + "%";
+
+        // Segundos restantes (usa drenaje real por modo si está disponible)
         if (secondsText)
         {
-            float drain = flashlight ? Mathf.Max(0.0001f, flashlight.drainRate) : 1f;
+            float drain = GetCurrentDrainPerSecondSafe();
             float secondsLeft = 0f;
             if (batteries)
             {
@@ -102,6 +107,7 @@ public class BatteryHUD : MonoBehaviour
             secondsText.text = Mathf.CeilToInt(secondsLeft) + "s";
         }
 
+        // Visibilidad
         bool wantVisible = true;
 
         if (hideWhenFlashlightOff)
@@ -120,6 +126,27 @@ public class BatteryHUD : MonoBehaviour
         }
     }
 
+    // Decide el valor de drenaje por segundo que mostrará el HUD
+    float GetCurrentDrainPerSecondSafe()
+    {
+        if (flashlight)
+        {
+            // Si añadiste el método propuesto en la linterna, úsalo:
+            try
+            {
+                return flashlight.GetCurrentDrainPerSecondForHUD();
+            }
+            catch { /* método no existe aún, fallback abajo */ }
+
+            // Fallback legacy: si no hay método, usa drainRate o un estimado razonable
+            // (mejor usar algo > 0 para evitar divisiones por cero)
+            float legacyDrain = flashlight.drainRate;
+            if (legacyDrain <= 0.0001f) legacyDrain = 1f;
+            return legacyDrain;
+        }
+        return 1f;
+    }
+
     float GetBatteryNormalizedSmart()
     {
         float tFlash = flashlight ? Mathf.Clamp01(flashlight.GetBatteryNormalized()) : -1f;
@@ -131,7 +158,6 @@ public class BatteryHUD : MonoBehaviour
 
         if (preferFlashlightWhenBoth)
         {
-
             if (Mathf.Abs(tFlash - tInv) > 0.03f) return Mathf.Min(tFlash, tInv);
             return tFlash; // casi iguales
         }
@@ -158,7 +184,7 @@ public class BatteryHUD : MonoBehaviour
         }
     }
 
-
+    // Hook opcional si ya lo usas en otros sitios.
     public void OnBatteryChangedUI(BatteryType type, float current, float max)
     {
         float t = (max > 0f) ? Mathf.Clamp01(current / max) : 0f;
@@ -174,11 +200,10 @@ public class BatteryHUD : MonoBehaviour
 
         if (secondsText)
         {
-            float drain = flashlight ? Mathf.Max(0.0001f, flashlight.drainRate) : 1f;
+            float drain = GetCurrentDrainPerSecondSafe();
             float secondsLeft = (max > 0f) ? (v * max) / drain : 0f;
             secondsText.text = Mathf.CeilToInt(secondsLeft) + "s";
         }
-
 
         bool wantVisible = !(hideWhenEmpty && v <= emptyEpsilon);
         if (hideWhenFlashlightOff)

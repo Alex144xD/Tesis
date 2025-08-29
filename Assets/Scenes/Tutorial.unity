@@ -967,8 +967,8 @@ MonoBehaviour:
   soulFragmentPrefab: {fileID: 3690126834859164667, guid: 88119e25d766d7a43b088a8e13e4f2f1, type: 3}
   enemyPrefabs:
   - {fileID: 3595625012628118935, guid: 156ea8d7801e10143a361335f8615ae7, type: 3}
-  - {fileID: 3595625012628118935, guid: b4dbbd5c206d23a4db638565a734224d, type: 3}
-  - {fileID: 3595625012628118935, guid: 758fa181a393e9440815ca344b378077, type: 3}
+  - {fileID: 3595625012628118935, guid: 156ea8d7801e10143a361335f8615ae7, type: 3}
+  - {fileID: 3595625012628118935, guid: 156ea8d7801e10143a361335f8615ae7, type: 3}
   torchesMinPerFloor: 1
   torchesMaxPerFloor: 6
   autoScaleByMapSize: 1
@@ -1544,8 +1544,14 @@ MonoBehaviour:
   localOffset: {x: 0, y: 0, z: 0.2}
   minRange: 5
   maxRange: 15
-  flickerSpeed: 0.1
   baseIntensity: 1.2
+  minRangeLow: 3
+  maxRangeLow: 9
+  lowIntensityMultiplier: 0.65
+  flickerSpeed: 0.1
+  drainHigh: 1
+  drainLow: 0.45
+  minEnergyToTurnOn: 0.02
   maxBattery: 30
   drainRate: 1
   toggleKey: 102
@@ -6411,7 +6417,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
-  m_Color: {r: 0.21509439, g: 0, b: 0, a: 1}
+  m_Color: {r: 0.21509439, g: 0, b: 0, a: 0.5568628}
   m_RaycastTarget: 1
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
