@@ -808,7 +808,7 @@ MonoBehaviour:
   rolloff: 1
   floorIndex: 0
   hitMemory: 0.15
-  scareByBatteries: 3
+  scareByBatteries: 1
   requireHighModeForScare: 0
   lowModeCanScare: 1
   requiredExposure: 1

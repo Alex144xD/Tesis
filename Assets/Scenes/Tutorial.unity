@@ -1544,17 +1544,12 @@ MonoBehaviour:
   localOffset: {x: 0, y: 0, z: 0.2}
   minRange: 5
   maxRange: 15
-  baseIntensity: 1.2
-  minRangeLow: 3
-  maxRangeLow: 9
-  lowIntensityMultiplier: 0.65
   flickerSpeed: 0.1
-  drainHigh: 1
-  drainLow: 0.45
-  minEnergyToTurnOn: 0.02
-  maxBattery: 30
+  baseIntensity: 1.2
   drainRate: 1
-  toggleKey: 102
+  lowDrainMultiplier: 0.6
+  highDrainMultiplier: 1
+  maxBattery: 30
   lowBatteryThreshold: 0.5
   criticalBatteryThreshold: 0.2
   blinkMin: 0.06
@@ -1843,7 +1838,7 @@ MonoBehaviour:
   respawnUpOffset: 0.3
   fallbackSpawnPoint: {fileID: 0}
   drawGizmos: 1
-  debugLogs: 0
+  debugLogs: 1
 --- !u!136 &393803996
 CapsuleCollider:
   m_ObjectHideFlags: 0
