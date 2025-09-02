@@ -19,6 +19,10 @@ MonoBehaviour:
     conoces.\n\nLa llama azul palpita como si fuera tu propio coraz\xF3n.\n\n\u2014Dime\u2026
     en lo m\xE1s profundo de tu alma\u2026\n\n\xBFTe frenaba el miedo\u2026 o te
     arrojaba a la tormenta?"
+  backgroundSprite: {fileID: 21300000, guid: 5e87261592254d3409a5542d84a862ec, type: 3}
+  backgroundSprites:
+  - {fileID: 21300000, guid: 5e87261592254d3409a5542d84a862ec, type: 3}
+  bgTint: {r: 1, g: 1, b: 1, a: 1}
   options:
   - text: "\u201CAvanzo con cautela.\u201D"
     effects:
@@ -27,7 +31,7 @@ MonoBehaviour:
       batteryDrain: -0.05
       batteryDensity: 0.05
       fragmentDensity: 0
-      floorsDelta: -1
+      fragmentsDelta: 0
       mapSizePercent: -0.05
       torchesOnlyStartFew: 0
       enemy2DrainsBattery: 0
@@ -40,7 +44,7 @@ MonoBehaviour:
       batteryDrain: 0.05
       batteryDensity: -0.05
       fragmentDensity: 0.05
-      floorsDelta: 1
+      fragmentsDelta: 0
       mapSizePercent: 0.08
       torchesOnlyStartFew: 0
       enemy2DrainsBattery: 0

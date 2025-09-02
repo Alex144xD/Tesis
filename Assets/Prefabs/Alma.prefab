@@ -14,6 +14,7 @@ GameObject:
   - component: {fileID: 5716806248497888598}
   - component: {fileID: 3726907181616062314}
   - component: {fileID: 7718275753406495780}
+  - component: {fileID: -5512639597227713025}
   m_Layer: 0
   m_Name: Alma
   m_TagString: Llave
@@ -143,6 +144,19 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   pickupSound: {fileID: 0}
   pickupEffect: {fileID: 0}
+--- !u!114 &-5512639597227713025
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3690126834859164667}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3042f1c9b365b0843afc6e8a81fbb6e1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  isPrimary: 1
 --- !u!1001 &4613181496504058901
 PrefabInstance:
   m_ObjectHideFlags: 0

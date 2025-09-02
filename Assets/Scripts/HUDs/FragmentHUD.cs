@@ -9,72 +9,70 @@ public class FragmentHUD : MonoBehaviour
     public TextMeshProUGUI counterText;
     public Image fragmentIcon;
     public GameObject rootHUD; 
+
     [Header("Configuración")]
     public int totalFragments = 9;
-    public float minAlpha = 0.2f;
-    public float maxAlpha = 1f;
+    [Range(0f, 1f)] public float minAlpha = 0.2f;
+    [Range(0f, 1f)] public float maxAlpha = 1f;
 
     int lastCurrent = 0;
 
+    private PlayerInventory _inv;
+    private MultiFloorDynamicMapManager _map;
+
     void Awake()
     {
-
         if (!rootHUD) rootHUD = gameObject;
+
+        if (rootHUD) rootHUD.SetActive(true);
     }
 
     void OnEnable()
     {
-
         StartCoroutine(DelayedInit());
     }
 
     IEnumerator DelayedInit()
     {
-
         yield return null;
 
-        bool inCustom = (GameManager.Instance != null && GameManager.Instance.IsInCustomMode());
+        _inv = FindObjectOfType<PlayerInventory>(true);
+        _map = FindObjectOfType<MultiFloorDynamicMapManager>(true);
 
-        if (rootHUD) rootHUD.SetActive(inCustom);
+        if (rootHUD) rootHUD.SetActive(true);
 
 
-        var inv = FindObjectOfType<PlayerInventory>();
-        if (inv != null)
+        totalFragments = ResolveTotalFragments();
+
+
+        lastCurrent = (_inv != null) ? Mathf.Max(0, _inv.soulFragmentsCollected) : 0;
+        UpdateFragmentCount(lastCurrent);
+
+        if (_inv != null)
         {
-
-            totalFragments = Mathf.Max(1, inv.totalLevels);
-
-
-            lastCurrent = Mathf.Max(0, inv.soulFragmentsCollected);
-
-            UpdateFragmentCount(lastCurrent);
-
-
-            inv.onFragmentCollected.RemoveListener(OnFragmentsChanged); 
-            inv.onFragmentCollected.AddListener(OnFragmentsChanged);
+            _inv.onFragmentCollected.RemoveListener(OnFragmentsChanged);
+            _inv.onFragmentCollected.AddListener(OnFragmentsChanged);
         }
-        else
+        if (_map != null)
         {
-
-            UpdateFragmentCount(0);
+            _map.OnMapUpdated -= HandleMapUpdated;
+            _map.OnMapUpdated += HandleMapUpdated;
         }
     }
 
     void OnDisable()
     {
-
-        var inv = FindObjectOfType<PlayerInventory>();
-        if (inv != null)
-            inv.onFragmentCollected.RemoveListener(OnFragmentsChanged);
+        if (_inv != null)
+            _inv.onFragmentCollected.RemoveListener(OnFragmentsChanged);
+        if (_map != null)
+            _map.OnMapUpdated -= HandleMapUpdated;
     }
-
 
     public void UpdateFragmentProgress(int current, int total)
     {
         totalFragments = Mathf.Max(1, total);
         UpdateFragmentCount(current);
     }
-
 
     public void UpdateFragmentCount(int current)
     {
@@ -94,15 +92,32 @@ public class FragmentHUD : MonoBehaviour
         }
     }
 
-
     public void SetVisible(bool visible)
     {
-        if (rootHUD) rootHUD.SetActive(visible);
+        if (rootHUD) rootHUD.SetActive(true); 
     }
 
-
-    void OnFragmentsChanged(int current, int total)
+    // --- Callbacks internos ---
+    void OnFragmentsChanged(int current, int totalFromInventory)
     {
+        int total = ResolveTotalFragments(fallback: totalFromInventory);
         UpdateFragmentProgress(current, total);
+    }
+
+    void HandleMapUpdated()
+    {
+        int total = ResolveTotalFragments(fallback: totalFragments);
+        UpdateFragmentProgress(lastCurrent, total);
+    }
+
+    int ResolveTotalFragments(int? fallback = null)
+    {
+        if (_map != null && _map.useSequentialFragments)
+            return Mathf.Max(1, _map.targetFragments);
+
+        if (_inv != null)
+            return Mathf.Max(1, _inv.GetRequiredFragmentsToWin());
+
+        return Mathf.Max(1, fallback ?? totalFragments);
     }
 }

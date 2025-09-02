@@ -1,15 +1,18 @@
 ﻿using UnityEngine;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 
 public class MultiFloorDynamicMapManager : MonoBehaviour
 {
     public static MultiFloorDynamicMapManager Instance;
 
+    // ================= CONFIG BÁSICA =================
     [Header("Mapa")]
     public int width = 21;
     public int height = 21;
-    public int floors = 3;
+    [Tooltip("Se mantiene por compatibilidad. Se usa el piso 0.")]
+    public int floors = 1;
 
     [Header("Escala")]
     public float cellSize = 1f;
@@ -18,59 +21,103 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     [Min(0.25f)] public float minFloorHeadroom = 0.75f;
 
     [Header("Prefabs (Maze)")]
-    public GameObject floorPrefab;         
-    public GameObject wallPrefab;          
-    public GameObject wallTorchPrefab;     
+    public GameObject floorPrefab;
+    public GameObject wallPrefab;
+    public GameObject wallTorchPrefab; // decorativa (no santuario)
 
     [Header("Prefabs (Entidades)")]
-
-    public List<GameObject> batteryPrefabs;    
+    public List<GameObject> batteryPrefabs;
     public GameObject soulFragmentPrefab;
     public List<GameObject> enemyPrefabs;
 
-    [Header("Antorchas por piso")]
-    public int torchesMinPerFloor = 6;
-    public int torchesMaxPerFloor = 6;
+    [Header("Jugador")]
+    public Transform player;
+    public GameObject playerPrefab;
+    public bool spawnPlayerIfMissing = true;
 
     [Header("Auto-scaling entities")]
     public bool autoScaleByMapSize = true;
     [Range(0f, 0.05f)] public float enemyDensity = 0.0075f;
     [Range(0f, 0.05f)] public float batteryDensity = 0.0060f;
-    [Range(0f, 0.02f)] public float fragmentDensity = 0.0020f;
+    [Range(0f, 0.02f)] public float fragmentDensity = 0.0f; // no usado en modo secuencial
     public int minEnemies = 2, maxEnemies = 25;
     public int minBatteries = 1, maxBatteries = 20;
-    public int minFragments = 0, maxFragments = 9;
 
     [Header("Dinámica")]
     public float regenerationInterval = 30f;
     public int safeRadiusCells = 5;
-    public Transform player;
 
     [Header("Colocación de pickups")]
-    public bool oneFragmentPerFloor = true;    
-    public float pickupLiftEpsilon = 0.02f;     
+    public bool oneFragmentPerFloor = true; // legacy (no usado en secuencial)
+    public float pickupLiftEpsilon = 0.02f;
 
-    public event Action OnMapUpdated;
+    // ================= FRAGMENTOS SECUENCIALES =================
+    [Header("Fragmentos Secuenciales")]
+    public bool useSequentialFragments = true;
+    [Min(1)] public int targetFragments = 5;
+    public int fragmentsCollected = 0;
 
-    // --- Interno ---
+    // Compat: variables antiguas (si algo externo las lee)
+    [Min(6)] public int fragmentMinRing = 8;
+    [Min(6)] public int fragmentMaxRing = 18;
+
+    [Header("Antorchas decorativas")]
+    public int decorativeTorchesNearPath = 3;
+    public int torchPathSkip = 5;
+
+    // ================= FX DE CAMBIO DE MAPA =================
+    [Header("FX de Cambio de Mapa")]
+    public bool enableVisibleTransition = true;
+    public CanvasGroup transitionCanvas;       // negro a pantalla completa (alpha 0..1)
+    public AudioClip bellClip;
+    [Range(0f, 1f)] public float bellVolume = 0.9f;
+
+    [Header("FX de Cambio de Mapa - Intensificados")]
+    public float transitionFadeOut = 0.6f;
+    public float transitionHoldBlack = 0.25f;
+    public float transitionFadeIn = 0.7f;
+
+    public bool flashOnExit = true;
+    [Range(0f, 1f)] public float flashAlpha = 0.35f;
+    public float flashDuration = 0.18f;
+    public CanvasGroup transitionFlashCanvas; // opcional para el flash blanco
+
+    public bool duckGlobalAudio = true;
+    [Range(0f, 1f)] public float duckVolume = 0.4f;
+
+    public bool dimFlashlightDuringTransition = true;
+    [Range(0f, 1f)] public float flashlightDimFactor = 0.25f;
+
+    public bool shakeOnExit = true;
+    public float shakeAmplitude = 0.08f;
+    public float shakeTime = 0.18f;
+
+    // ================= INTERNOS =================
+    private AudioSource sfx;
+
     // 0: pasillo, 1: muro
     private int[,,] maze;
     private bool[,,] walkableGrid;
-    private bool[,,] sanctuaryGrid;
-
+    private bool[,,] sanctuaryGrid; // legacy (no se usa)
     private GameObject[,,] wallObjects;
     private Transform[] floorContainers;
     private List<Vector2Int>[] freeCells;
-
     private List<GameObject>[] spawnedEntities;
     private List<GameObject>[] spawnedTorchWalls;
 
-    private int[] torchesRemaining;
     private float wallHeight;
     private float regenTimer;
     private int currentFloor = -1;
 
-    private System.Random rng = new System.Random();
+    // Anclas A (jugador) y B (fragmento activo)
+    private Vector2Int anchorA;
+    private Vector2Int anchorB;
+    private bool hasActiveFragment = false;
+    private GameObject activeFragmentGO = null;
+
+    private float _savedAudioListenerVolume = 1f;
+
+    public event Action OnMapUpdated;
 
     void Awake()
     {
@@ -82,6 +129,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     {
         if (width % 2 == 0) width++;
         if (height % 2 == 0) height++;
+        floors = Mathf.Max(1, floors);
 
         wallHeight = Mathf.Max(cellSize, cellSize * wallHeightMultiplier);
         float minFH = wallHeight + minFloorHeadroom;
@@ -91,44 +139,31 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             floorHeight = minFH;
         }
 
-        maze = new int[floors, width, height];
-        walkableGrid = new bool[floors, width, height];
-        sanctuaryGrid = new bool[floors, width, height];
-        wallObjects = new GameObject[floors, width, height];
+        sfx = GetComponent<AudioSource>();
+        if (!sfx) sfx = gameObject.AddComponent<AudioSource>();
+        sfx.playOnAwake = false;
+        sfx.spatialBlend = 0f;
 
-        freeCells = new List<Vector2Int>[floors];
-        spawnedEntities = new List<GameObject>[floors];
-        spawnedTorchWalls = new List<GameObject>[floors];
-        floorContainers = new Transform[floors];
-        torchesRemaining = new int[floors];
-
-        for (int f = 0; f < floors; f++)
-        {
-            spawnedEntities[f] = new List<GameObject>();
-            spawnedTorchWalls[f] = new List<GameObject>();
-
-            int a = Mathf.Min(torchesMinPerFloor, torchesMaxPerFloor);
-            int b = Mathf.Max(torchesMinPerFloor, torchesMaxPerFloor) + 1;
-            torchesRemaining[f] = UnityEngine.Random.Range(a, b);
-        }
+        AllocGrids(width, height, floors);
 
         GenerateAllFloors();
         InstantiateAllFloors();
         UpdateWalkableGrid();
         UpdateFreeCells();
 
-        // Spawns iniciales por piso
         for (int f = 0; f < floors; f++)
         {
-            SpawnTorchWallsOnFloor(f);
-            RespawnPickupsOnFloor(f);
+            SpawnTorchWallsOnFloor(f, decorative: false);
+            RespawnPickupsOnFloor(f, placeFragment: !useSequentialFragments);
             SpawnEnemiesOnFloor(f);
         }
 
         ChangeFloor(0);
 
-        var inv = player ? player.GetComponent<PlayerInventory>() : null;
-        if (inv != null) inv.totalLevels = floors;
+        if (useSequentialFragments)
+        {
+            BeginRun();
+        }
     }
 
     void Update()
@@ -137,82 +172,179 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         if (regenTimer >= regenerationInterval)
         {
             regenTimer = 0f;
-            PartialRegenerate();
+            if (enableVisibleTransition)
+                StartCoroutine(RunMapChangeFX_Intense(PartialRegenerate));
+            else
+                PartialRegenerate();
         }
 
         int pf = GetPlayerFloor();
         if (pf != currentFloor) ChangeFloor(pf);
     }
 
-
-
-    int GetPlayerFloor()
+    // ======= APIS QUE TE FALTABAN =======
+    public void SetTargetFragments(int n)
     {
-        if (!player) return Mathf.Clamp(currentFloor, 0, floors - 1);
-        return Mathf.Clamp(Mathf.RoundToInt(-player.position.y / floorHeight), 0, floors - 1);
+        targetFragments = Mathf.Max(1, n);
+        if (useSequentialFragments)
+            fragmentsCollected = Mathf.Clamp(fragmentsCollected, 0, targetFragments);
     }
 
-    public void GoToNextFloor()
+    public void SetGenerationTuning(float enemyDens, float batteryDens, int fragMinRing, int fragMaxRing)
     {
-        int next = Mathf.Min(currentFloor + 1, floors - 1);
+        enemyDensity = Mathf.Clamp(enemyDens, 0f, 0.05f);
+        batteryDensity = Mathf.Clamp(batteryDens, 0f, 0.05f);
+        fragmentMinRing = Mathf.Max(1, fragMinRing);
+        fragmentMaxRing = Mathf.Max(fragmentMinRing, fragMaxRing);
+    }
+    // ====================================
 
- 
-        ChangeFloor(next);
-        Debug.Log("Cambio al piso: " + next);
+    // ==================== API PÚBLICA (STORY/EFFECTS) ====================
+    public void BeginRun()
+    {
+        int f = 0;
 
-  
-        if (player)
+        anchorA = ChooseStartCellNearEdge(f);
+
+        if (!player)
         {
-            Vector2Int fromCell = WorldToCell(player.position);
-
-            if (TryFindFarthestFreeCell(next, fromCell, out var farCell))
-                TeleportPlayerToCell(player, farCell, next);
+            if (spawnPlayerIfMissing && playerPrefab)
+            {
+                var go = Instantiate(playerPrefab, CellCenterToWorld(anchorA, f), Quaternion.identity);
+                player = go.transform;
+                SnapToFloorY(player, f, 0.02f);
+            }
             else
-                TeleportPlayerToCell(player, ClampToBounds(fromCell), next);
+            {
+                var maybe = GameObject.FindGameObjectWithTag("Player");
+                if (maybe) player = maybe.transform;
+            }
         }
+
+        if (player) TeleportPlayerToCell(player, anchorA, f);
+
+        anchorB = ChooseGoalCellOppositeSide(f, anchorA);
+        PlaceActiveFragmentAt(f, anchorB);
+
+        EnsureConnectivityBetween(f, anchorA, anchorB, openRatio: 1.0f);
+        DecoratePathToGoal(f, anchorA, anchorB);
+
+        OnMapUpdated?.Invoke();
     }
 
-    void ChangeFloor(int newFloor)
+    public void OnFragmentCollected()
     {
-        if (currentFloor >= 0)
+        if (!useSequentialFragments) return;
+
+        // >>> BRÚJULA: desmarcar primario del anterior por seguridad
+        if (activeFragmentGO)
         {
-            foreach (var go in spawnedEntities[currentFloor])
-                if (go) Destroy(go);
-            spawnedEntities[currentFloor].Clear();
+            var prevCt = activeFragmentGO.GetComponent<CompassTarget>();
+            if (prevCt) prevCt.isPrimary = false;
         }
-        currentFloor = newFloor;
+        // -----------------------------------
+
+        fragmentsCollected = Mathf.Clamp(fragmentsCollected + 1, 0, targetFragments);
+        TrySpawnExtraBatteryIfUnderCap();
+
+        if (fragmentsCollected >= targetFragments)
+        {
+            hasActiveFragment = false;
+            if (activeFragmentGO) { Destroy(activeFragmentGO); activeFragmentGO = null; }
+            Debug.Log("[Map] ¡Todos los fragmentos recolectados!");
+            return;
+        }
+
+        int f = 0;
+        anchorA = FindNearestWalkableCell(f, ClampToBounds(WorldToCell(player ? player.position : Vector3.zero)));
+        anchorB = ChooseGoalCellOppositeSide(f, anchorA);
+        PlaceActiveFragmentAt(f, anchorB);
+
+        PartialRegenerate();
+        EnsureConnectivityBetween(f, anchorA, anchorB, 1.0f);
+        DecoratePathToGoal(f, anchorA, anchorB);
+
+        OnMapUpdated?.Invoke();
+    }
+
+    public void RequestResize(int newWidth, int newHeight, bool keepAnchors = true)
+    {
+        if (newWidth % 2 == 0) newWidth++;
+        if (newHeight % 2 == 0) newHeight++;
+
+        bool hadB = hasActiveFragment;
+
+        DestroyAllInstantiated();
+
+        width = Mathf.Max(7, newWidth);
+        height = Mathf.Max(7, newHeight);
+        AllocGrids(width, height, floors);
+
+        GenerateAllFloors();
+        InstantiateAllFloors();
+        UpdateWalkableGrid();
+        UpdateFreeCells();
+
+        for (int f = 0; f < floors; f++)
+        {
+            SpawnTorchWallsOnFloor(f, decorative: false);
+            RespawnPickupsOnFloor(f, placeFragment: (!useSequentialFragments));
+            SpawnEnemiesOnFloor(f);
+        }
+
+        if (keepAnchors)
+        {
+            int f = 0;
+            anchorA = FindNearestWalkableCell(f, ClampToBounds(WorldToCell(player ? player.position : Vector3.zero)));
+            if (hadB)
+            {
+                anchorB = ChooseGoalCellOppositeSide(f, anchorA);
+                PlaceActiveFragmentAt(f, anchorB);
+                EnsureConnectivityBetween(f, anchorA, anchorB, 1.0f);
+                DecoratePathToGoal(f, anchorA, anchorB);
+            }
+        }
+
+        ChangeFloor(0);
+        OnMapUpdated?.Invoke();
+    }
+
+    // ==================== NÚCLEO DE MAZE / CELDAS ====================
+    void AllocGrids(int w, int h, int floorsCount)
+    {
+        maze = new int[floorsCount, w, h];
+        walkableGrid = new bool[floorsCount, w, h];
+        sanctuaryGrid = new bool[floorsCount, w, h]; // legacy, no se usa
+        wallObjects = new GameObject[floorsCount, w, h];
+        freeCells = new List<Vector2Int>[floorsCount];
+        spawnedEntities = new List<GameObject>[floorsCount];
+        spawnedTorchWalls = new List<GameObject>[floorsCount];
+        floorContainers = new Transform[floorsCount];
+
+        for (int f = 0; f < floorsCount; f++)
+        {
+            freeCells[f] = new List<Vector2Int>();
+            spawnedEntities[f] = new List<GameObject>();
+            spawnedTorchWalls[f] = new List<GameObject>();
+        }
     }
 
     void GenerateAllFloors()
     {
-        for (int f = 0; f < floors; f++) GenerateMazeForFloor(f);
+        System.Random R = new System.Random();
+        for (int f = 0; f < floors; f++)
+        {
+            int[,] grid = new int[width, height];
+            for (int x = 0; x < width; x++)
+                for (int y = 0; y < height; y++)
+                    grid[x, y] = 1;
 
-        // evitar duplicados exactos
-        for (int a = 0; a < floors; a++)
-            for (int b = a + 1; b < floors; b++)
-                if (FloorsAreIdentical(a, b)) GenerateMazeForFloor(b);
-    }
+            CarveDFS(1, 1, grid, R);
 
-    void GenerateMazeForFloor(int f)
-    {
-        int[,] grid = new int[width, height];
-        for (int x = 0; x < width; x++)
-            for (int y = 0; y < height; y++)
-                grid[x, y] = 1;
-
-        CarveDFS(1, 1, grid, rng);
-
-        for (int x = 0; x < width; x++)
-            for (int y = 0; y < height; y++)
-                maze[f, x, y] = grid[x, y];
-    }
-
-    bool FloorsAreIdentical(int a, int b)
-    {
-        for (int x = 0; x < width; x++)
-            for (int y = 0; y < height; y++)
-                if (maze[a, x, y] != maze[b, x, y]) return false;
-        return true;
+            for (int x = 0; x < width; x++)
+                for (int y = 0; y < height; y++)
+                    maze[f, x, y] = grid[x, y];
+        }
     }
 
     void CarveDFS(int cx, int cy, int[,] grid, System.Random R)
@@ -245,8 +377,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             container.SetParent(transform);
             floorContainers[f] = container;
 
-            freeCells[f] = new List<Vector2Int>();
-
+            freeCells[f].Clear();
 
             var floorGO = Instantiate(
                 floorPrefab,
@@ -255,7 +386,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                 container
             );
             SetupFloorSize(floorGO);
-
 
             for (int x = 0; x < width; x++)
             {
@@ -287,231 +417,361 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     {
         if (!floorGO) return;
         var mf = floorGO.GetComponent<MeshFilter>();
-        float sx = width * cellSize;
-        float sz = height * cellSize;
+        float sx = width * cellSize, sz = height * cellSize;
 
         if (mf && mf.sharedMesh && mf.sharedMesh.name.ToLowerInvariant().Contains("plane"))
-            floorGO.transform.localScale = new Vector3(sx * 0.1f, 1f, sz * 0.1f); // Unity plane 10x10
+            floorGO.transform.localScale = new Vector3(sx * 0.1f, 1f, sz * 0.1f);
         else
             floorGO.transform.localScale = new Vector3(sx, 1f, sz);
     }
 
+    void DestroyAllInstantiated()
+    {
+        if (floorContainers != null)
+        {
+            for (int f = 0; f < floorContainers.Length; f++)
+            {
+                if (floorContainers[f] != null)
+                    DestroyImmediate(floorContainers[f].gameObject);
+            }
+        }
+    }
 
+    // ==================== REGENERACIÓN (respeta A/B) ====================
     void PartialRegenerate()
     {
-        int pf = GetPlayerFloor();
+        int f = 0;
 
-        Vector2Int playerCell = WorldToCell(player ? player.position : Vector3.zero);
-        playerCell = ClampToBounds(playerCell);
-        Vector2Int safeSeed = FindNearestWalkableCell(pf, playerCell);
-
-        bool[,] safe = new bool[width, height];
-        MarkSafeRegionWalkable(pf, safeSeed.x, safeSeed.y, safe);
-
-        for (int f = 0; f < floors; f++)
+        anchorA = FindNearestWalkableCell(f, ClampToBounds(WorldToCell(player ? player.position : Vector3.zero)));
+        if (!hasActiveFragment && useSequentialFragments && fragmentsCollected < targetFragments)
         {
-            int[,] buf = new int[width, height];
-            for (int x = 0; x < width; x++)
-                for (int y = 0; y < height; y++)
-                    buf[x, y] = 1;
+            anchorB = ChooseGoalCellOppositeSide(f, anchorA);
+            PlaceActiveFragmentAt(f, anchorB);
+        }
 
-            CarveDFS(1, 1, buf, rng);
+        bool[,] preserve = new bool[width, height];
+        MarkPreserveDisk(preserve, anchorA, safeRadiusCells);
+        MarkPreserveDisk(preserve, anchorB, 2);
 
-            for (int x = 0; x < width; x++)
+        System.Random R = new System.Random();
+        int[,] buf = new int[width, height];
+        for (int x = 0; x < width; x++)
+            for (int y = 0; y < height; y++)
+                buf[x, y] = 1;
+        CarveDFS(1, 1, buf, R);
+
+        float yPos = -f * floorHeight + wallHeight * 0.5f;
+        for (int x = 0; x < width; x++)
+        {
+            for (int y = 0; y < height; y++)
             {
-                for (int y = 0; y < height; y++)
+                if (preserve[x, y]) continue;
+
+                bool wasWall = (maze[f, x, y] == 1);
+                bool willWall = (buf[x, y] == 1);
+                if (wasWall == willWall) continue;
+
+                Vector3 pos = new Vector3(x * cellSize, yPos, y * cellSize);
+                if (willWall)
                 {
-                    if (f == pf && safe[x, y]) continue;
-
-                    bool wasWall = maze[f, x, y] == 1;
-                    bool willWall = buf[x, y] == 1;
-
-                    if (wasWall != willWall)
+                    if (wallObjects[f, x, y] == null)
                     {
-                        float yPos = -f * floorHeight + wallHeight * 0.5f;
-                        Vector3 pos = new Vector3(x * cellSize, yPos, y * cellSize);
-
-                        if (willWall)
-                        {
-                            if (wallObjects[f, x, y] == null)
-                            {
-                                var w = Instantiate(wallPrefab, pos, Quaternion.identity, floorContainers[f]);
-                                w.transform.localScale = new Vector3(cellSize, wallHeight, cellSize);
-                                wallObjects[f, x, y] = w;
-                            }
-                        }
-                        else if (wallObjects[f, x, y] != null)
-                        {
-                            Destroy(wallObjects[f, x, y]);
-                            wallObjects[f, x, y] = null;
-                        }
-
-                        maze[f, x, y] = buf[x, y];
+                        var w = Instantiate(wallPrefab, pos, Quaternion.identity, floorContainers[f]);
+                        w.transform.localScale = new Vector3(cellSize, wallHeight, cellSize);
+                        wallObjects[f, x, y] = w;
                     }
                 }
+                else
+                {
+                    var w = wallObjects[f, x, y];
+                    if (w != null) { Destroy(w); wallObjects[f, x, y] = null; }
+                }
+                maze[f, x, y] = buf[x, y];
             }
-
-            torchesRemaining[f] = Mathf.Max(0, torchesRemaining[f] - 1);
-            ClearTorchWalls(f);
-            SpawnTorchWallsOnFloor(f);
-            RespawnPickupsOnFloor(f);
-            SpawnEnemiesOnFloor(f);
         }
 
         UpdateWalkableGrid();
         UpdateFreeCells();
+
+        EnsureConnectivityBetween(f, anchorA, anchorB, 1.0f);
+        DecoratePathToGoal(f, anchorA, anchorB);
+
         OnMapUpdated?.Invoke();
     }
 
-    void MarkSafeRegionWalkable(int floor, int sx, int sy, bool[,] safe)
+    void MarkPreserveDisk(bool[,] mask, Vector2Int center, int radius)
     {
-        if (!Inside(new Vector2Int(sx, sy))) return;
-        if (maze[floor, sx, sy] == 1) return;
-
-        var q = new Queue<Vector2Int>();
-        var next = new Queue<Vector2Int>();
-        int[] dx = { 1, -1, 0, 0 }, dy = { 0, 0, 1, -1 };
-
-        safe[sx, sy] = true;
-        q.Enqueue(new Vector2Int(sx, sy));
-        int depth = 0;
-
-        while (q.Count > 0 && depth < safeRadiusCells)
+        int r2 = radius * radius;
+        for (int x = Mathf.Max(0, center.x - radius); x <= Mathf.Min(width - 1, center.x + radius); x++)
         {
-            while (q.Count > 0)
+            for (int y = Mathf.Max(0, center.y - radius); y <= Mathf.Min(height - 1, center.y + radius); y++)
             {
-                var c = q.Dequeue();
-                for (int i = 0; i < 4; i++)
-                {
-                    int nx = c.x + dx[i], ny = c.y + dy[i];
-                    if (!Inside(new Vector2Int(nx, ny))) continue;
-                    if (maze[floor, nx, ny] != 0) continue;
-                    if (safe[nx, ny]) continue;
-
-                    safe[nx, ny] = true;
-                    next.Enqueue(new Vector2Int(nx, ny));
-                }
+                int dx = x - center.x, dy = y - center.y;
+                if (dx * dx + dy * dy <= r2) mask[x, y] = true;
             }
-            depth++;
-            (q, next) = (next, q);
         }
     }
 
-    Vector2Int FindNearestWalkableCell(int floor, Vector2Int from)
+    // ==================== A* y CONECTIVIDAD ====================
+    List<Vector2Int> AStarPath(int floor, Vector2Int start, Vector2Int goal)
     {
-        from = ClampToBounds(from);
-        if (maze[floor, from.x, from.y] == 0) return from;
+        if (!Inside(start) || !Inside(goal)) return null;
+        if (maze[floor, start.x, start.y] == 1 || maze[floor, goal.x, goal.y] == 1) return null;
 
-        var visited = new bool[width, height];
-        var q = new Queue<Vector2Int>();
-        visited[from.x, from.y] = true; q.Enqueue(from);
+        var open = new PriorityQueue<Vector2Int>();
+        var came = new Dictionary<Vector2Int, Vector2Int>();
+        var g = new Dictionary<Vector2Int, int>();
+        var fScore = new Dictionary<Vector2Int, int>();
+
+        g[start] = 0;
+        fScore[start] = Heuristic(start, goal);
+        open.Enqueue(start, fScore[start]);
 
         int[] dx = { 1, -1, 0, 0 };
         int[] dy = { 0, 0, 1, -1 };
 
-        while (q.Count > 0)
+        while (open.Count > 0)
         {
-            var c = q.Dequeue();
+            var current = open.Dequeue();
+
+            if (current == goal)
+                return Reconstruct(came, current);
+
             for (int i = 0; i < 4; i++)
             {
-                int nx = c.x + dx[i], ny = c.y + dy[i];
-                if (!Inside(new Vector2Int(nx, ny)) || visited[nx, ny]) continue;
-                visited[nx, ny] = true;
-                if (maze[floor, nx, ny] == 0) return new Vector2Int(nx, ny);
-                q.Enqueue(new Vector2Int(nx, ny));
+                Vector2Int nb = new Vector2Int(current.x + dx[i], current.y + dy[i]);
+                if (!Inside(nb)) continue;
+                if (maze[floor, nb.x, nb.y] == 1) continue;
+
+                int tentative = g[current] + 1;
+                if (!g.ContainsKey(nb) || tentative < g[nb])
+                {
+                    came[nb] = current;
+                    g[nb] = tentative;
+                    fScore[nb] = tentative + Heuristic(nb, goal);
+                    open.EnqueueOrDecrease(nb, fScore[nb]);
+                }
             }
         }
-        return ClampToBounds(from);
+        return null;
     }
 
+    int Heuristic(Vector2Int a, Vector2Int b)
+        => Mathf.Abs(a.x - b.x) + Mathf.Abs(a.y - b.y);
 
-
-    void ClearTorchWalls(int floor)
+    List<Vector2Int> Reconstruct(Dictionary<Vector2Int, Vector2Int> came, Vector2Int current)
     {
-        if (spawnedTorchWalls == null) return;
-        foreach (var t in spawnedTorchWalls[floor])
-            if (t) Destroy(t);
+        var path = new List<Vector2Int> { current };
+        while (came.ContainsKey(current))
+        {
+            current = came[current];
+            path.Add(current);
+        }
+        path.Reverse();
+        return path;
+    }
+
+    void EnsureConnectivityBetween(int floor, Vector2Int a, Vector2Int b, float openRatio = 1.0f)
+    {
+        if (!Inside(a) || !Inside(b)) return;
+        var path = AStarPath(floor, a, b);
+        if (path != null && path.Count > 0) { DecoratePathToGoal(floor, a, b, path); return; }
+
+        var carved = CarveGreedyCorridor(floor, a, b);
+        if (carved != null && carved.Count > 0)
+        {
+            DecoratePathToGoal(floor, a, b, carved);
+            UpdateWalkableGrid();
+            UpdateFreeCells();
+            OnMapUpdated?.Invoke();
+        }
+    }
+
+    List<Vector2Int> CarveGreedyCorridor(int floor, Vector2Int a, Vector2Int b)
+    {
+        var path = new List<Vector2Int>();
+        Vector2Int cur = a;
+        path.Add(cur);
+
+        int guard = width * height * 4;
+        while (cur != b && guard-- > 0)
+        {
+            Vector2Int best = cur;
+            int bestH = Heuristic(cur, b);
+
+            Vector2Int[] dirs = { Vector2Int.right, Vector2Int.left, Vector2Int.up, Vector2Int.down };
+            foreach (var d in dirs)
+            {
+                Vector2Int nb = cur + d;
+                if (!Inside(nb)) continue;
+                int h = Heuristic(nb, b);
+                if (h < bestH) { best = nb; bestH = h; }
+            }
+
+            if (best == cur) break;
+
+            if (maze[floor, best.x, best.y] == 1)
+            {
+                var w = wallObjects[floor, best.x, best.y];
+                if (w) { Destroy(w); wallObjects[floor, best.x, best.y] = null; }
+                maze[floor, best.x, best.y] = 0;
+            }
+
+            cur = best;
+            path.Add(cur);
+        }
+
+        return (cur == b) ? path : null;
+    }
+
+    // ==================== ANTORCHAS DECORATIVAS ====================
+    void DecoratePathToGoal(int floor, Vector2Int a, Vector2Int b, List<Vector2Int> knownPath = null)
+    {
+        ClearDecorativeTorches(floor);
+
+        List<Vector2Int> path = knownPath ?? AStarPath(floor, a, b);
+        if (path == null || path.Count < 3 || wallTorchPrefab == null) return;
+
+        int count = Mathf.Clamp(decorativeTorchesNearPath, 0, 12);
+        int placed = 0;
+        for (int i = path.Count - 2; i >= 1 && placed < count; i -= Mathf.Max(1, torchPathSkip))
+        {
+            Vector2Int corridorCell = path[i];
+            if (TryPlaceTorchOnAdjacentWall(floor, corridorCell)) placed++;
+        }
+    }
+
+    void ClearDecorativeTorches(int floor)
+    {
+        if (spawnedTorchWalls == null || spawnedTorchWalls[floor] == null) return;
+        foreach (var t in spawnedTorchWalls[floor]) if (t) Destroy(t);
         spawnedTorchWalls[floor].Clear();
-
-
-        for (int x = 0; x < width; x++)
-            for (int y = 0; y < height; y++)
-                sanctuaryGrid[floor, x, y] = false;
     }
 
-    void SpawnTorchWallsOnFloor(int f)
+    bool TryPlaceTorchOnAdjacentWall(int floor, Vector2Int corridorCell)
     {
-        if (wallTorchPrefab == null) return;
-
-        int desired = Mathf.Max(0, torchesRemaining[f]);
-        if (desired == 0) return;
-
-        var candidates = new List<(Vector2Int wall, Vector2Int corridor)>();
         int[] dx = { 1, -1, 0, 0 };
         int[] dy = { 0, 0, 1, -1 };
 
-        // paredes con 1 pasillo vecino
-        for (int x = 1; x < width - 1; x++)
+        float yOff = -floor * floorHeight;
+        for (int i = 0; i < 4; i++)
         {
-            for (int y = 1; y < height - 1; y++)
-            {
-                if (maze[f, x, y] != 1) continue;
-                int corridorCount = 0; Vector2Int cNeighbor = default;
-                for (int i = 0; i < 4; i++)
-                {
-                    int nx = x + dx[i], ny = y + dy[i];
-                    if (maze[f, nx, ny] == 0) { corridorCount++; cNeighbor = new Vector2Int(nx, ny); }
-                }
-                if (corridorCount == 1)
-                    candidates.Add((new Vector2Int(x, y), cNeighbor));
-            }
-        }
+            int wx = corridorCell.x + dx[i];
+            int wy = corridorCell.y + dy[i];
+            if (!Inside(new Vector2Int(wx, wy))) continue;
+            if (maze[floor, wx, wy] != 1) continue; // debe ser muro
 
-        // barajar
-        for (int i = 0; i < candidates.Count; i++)
-        {
-            int r = rng.Next(i, candidates.Count);
-            (candidates[i], candidates[r]) = (candidates[r], candidates[i]);
-        }
-
-        int placed = 0;
-        float yOff = -f * floorHeight;
-
-        foreach (var c in candidates)
-        {
-            if (placed >= desired) break;
-
-            var wallCell = c.wall;
-            var corridorCell = c.corridor;
-
-            if (wallObjects[f, wallCell.x, wallCell.y] != null)
-            {
-                Destroy(wallObjects[f, wallCell.x, wallCell.y]);
-                wallObjects[f, wallCell.x, wallCell.y] = null;
-            }
-
-            Vector3 wallCenter = new Vector3(wallCell.x * cellSize, yOff + wallHeight * 0.5f, wallCell.y * cellSize);
+            Vector3 wallCenter = new Vector3(wx * cellSize, yOff + wallHeight * 0.5f, wy * cellSize);
             Vector3 corrCenter = new Vector3(corridorCell.x * cellSize, yOff + wallHeight * 0.5f, corridorCell.y * cellSize);
             Vector3 n = (corrCenter - wallCenter); n.y = 0f; n.Normalize();
             Quaternion rot = Quaternion.LookRotation(n, Vector3.up);
 
-            var torchWall = Instantiate(wallTorchPrefab, wallCenter, rot, floorContainers[f]);
-            torchWall.transform.localScale = new Vector3(cellSize, wallHeight, cellSize);
-            wallObjects[f, wallCell.x, wallCell.y] = torchWall;
-            spawnedTorchWalls[f].Add(torchWall);
-
-            var safe = torchWall.GetComponentInChildren<TorchSafeZone>(true);
-            if (safe != null)
-            {
-                safe.floorIndex = f;
-                safe.corridorCell = corridorCell;
-            }
-
-            placed++;
+            var t = Instantiate(wallTorchPrefab, wallCenter, rot, floorContainers[floor]);
+            t.transform.localScale = new Vector3(cellSize, wallHeight, cellSize);
+            if (spawnedTorchWalls[floor] == null) spawnedTorchWalls[floor] = new List<GameObject>();
+            spawnedTorchWalls[floor].Add(t);
+            return true;
         }
+        return false;
     }
 
-    void RespawnPickupsOnFloor(int f)
+    // ==================== FRAGMENTO ACTIVO ====================
+    Vector2Int ChooseGoalCellOppositeSide(int floor, Vector2Int a)
+    {
+        Vector2 mid = new Vector2((width - 1) * 0.5f, (height - 1) * 0.5f);
+
+        int sxA = Mathf.Sign(a.x - mid.x) >= 0 ? 1 : -1;
+        int syA = Mathf.Sign(a.y - mid.y) >= 0 ? 1 : -1;
+
+        var free = GetFreeCells(floor);
+        if (free.Count == 0) return a;
+
+        int PerimeterScore(Vector2Int c)
+        {
+            int toLeft = c.x;
+            int toRight = (width - 1) - c.x;
+            int toDown = c.y;
+            int toUp = (height - 1) - c.y;
+            return Mathf.Min(toLeft, toRight, toDown, toUp);
+        }
+
+        var opposite = new List<Vector2Int>(free.Count);
+        foreach (var c in free)
+        {
+            int sxC = Mathf.Sign(c.x - mid.x) >= 0 ? 1 : -1;
+            int syC = Mathf.Sign(c.y - mid.y) >= 0 ? 1 : -1;
+            bool oppositeSide = (sxC != sxA) || (syC != syA);
+            if (oppositeSide) opposite.Add(c);
+        }
+
+        var pool = (opposite.Count > 0) ? opposite : free;
+        pool.Sort((p, q) => PerimeterScore(p).CompareTo(PerimeterScore(q)));
+
+        int maxCheck = Mathf.Min(pool.Count, 64);
+        Vector2Int bestCell = a;
+        int bestLen = -1;
+
+        for (int i = 0; i < maxCheck; i++)
+        {
+            var c = pool[i];
+            var path = AStarPath(floor, a, c);
+            int len = (path != null) ? path.Count : 0;
+            if (len > bestLen) { bestLen = len; bestCell = c; }
+        }
+
+        if (bestLen <= 0)
+        {
+            float bestDist = -1f;
+            foreach (var c in pool)
+            {
+                float d = Mathf.Abs(c.x - a.x) + Mathf.Abs(c.y - a.y);
+                if (d > bestDist) { bestDist = d; bestCell = c; }
+            }
+        }
+        return bestCell;
+    }
+
+    void PlaceActiveFragmentAt(int floor, Vector2Int cell)
+    {
+        if (activeFragmentGO) { Destroy(activeFragmentGO); activeFragmentGO = null; }
+
+        hasActiveFragment = true;
+        anchorB = cell;
+
+        if (!soulFragmentPrefab) return;
+
+        var go = Instantiate(soulFragmentPrefab, CellCenterToWorld(cell, floor), Quaternion.identity, floorContainers[floor]);
+        SnapToFloorByRendererHeight(go.transform, floor);
+        activeFragmentGO = go;
+
+        // >>> BRÚJULA: marcar objetivo primario
+        var ct = go.GetComponent<CompassTarget>();
+        if (!ct) ct = go.AddComponent<CompassTarget>();
+        ct.isPrimary = true;
+        // -------------------------------------
+    }
+
+    void TrySpawnExtraBatteryIfUnderCap()
+    {
+        int worldCount = CountBatteriesAllFloors();
+        int playerCount = EstimatePlayerBatteryCount();
+        int total = worldCount + playerCount;
+        if (total >= 15) return;
+
+        var ring = GetFreeCells(0);
+        if (ring.Count == 0 || batteryPrefabs == null || batteryPrefabs.Count == 0) return;
+
+        var cell = ring[UnityEngine.Random.Range(0, ring.Count)];
+        var prefab = batteryPrefabs[UnityEngine.Random.Range(0, batteryPrefabs.Count)];
+        var go = Instantiate(prefab, BatteryAnchorToWorld(cell, 0), Quaternion.identity, floorContainers[0]);
+        SnapToFloorByRendererHeight(go.transform, 0);
+        spawnedEntities[0].Add(go);
+    }
+
+    int EstimatePlayerBatteryCount() => 0; // enlázalo a tu inventario si quieres
+
+    // ==================== ENEMIGOS / PICKUPS ====================
+    void RespawnPickupsOnFloor(int f, bool placeFragment)
     {
         if (spawnedEntities[f] == null) spawnedEntities[f] = new List<GameObject>();
         foreach (var go in spawnedEntities[f]) if (go) Destroy(go);
@@ -520,53 +780,31 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         var cells = GetFreeCells(f);
         if (cells.Count == 0) return;
 
-        Vector2Int playerCell = WorldToCell(player ? player.position : Vector3.zero);
-        bool playerOnThis = (GetPlayerFloor() == f);
-
-        cells.RemoveAll(c =>
-            sanctuaryGrid[f, c.x, c.y] ||
-            (playerOnThis && (Mathf.Abs(c.x - playerCell.x) + Mathf.Abs(c.y - playerCell.y) <= 2))
-        );
-
-
         int batteries = autoScaleByMapSize ? ScaledCount(batteryDensity, minBatteries, maxBatteries) : minBatteries;
-
-        // reparto round-robin entre los prefabs disponibles
-        int rr = 0;
         for (int i = 0; i < batteries && cells.Count > 0 && batteryPrefabs != null && batteryPrefabs.Count > 0; i++)
         {
-            int idx = rng.Next(cells.Count);
+            int idx = UnityEngine.Random.Range(0, cells.Count);
             var cell = cells[idx];
+            var prefab = batteryPrefabs[i % batteryPrefabs.Count];
 
-            var prefab = batteryPrefabs[rr % batteryPrefabs.Count];
-            rr++;
-
-            var go = Instantiate(
-                prefab,
-                BatteryAnchorToWorld(cell, f),  
-                Quaternion.identity,
-                floorContainers[f]
-            );
+            var go = Instantiate(prefab, BatteryAnchorToWorld(cell, f), Quaternion.identity, floorContainers[f]);
             SnapToFloorByRendererHeight(go.transform, f);
             spawnedEntities[f].Add(go);
-
             cells.RemoveAt(idx);
         }
 
-        // ---- FRAGMENTO DE ALMA ----
-        int fragments = oneFragmentPerFloor ? 1 :
-            (autoScaleByMapSize ? ScaledCount(fragmentDensity, minFragments, maxFragments) : minFragments);
-
-        for (int i = 0; i < fragments && cells.Count > 0 && soulFragmentPrefab; i++)
+        if (placeFragment && soulFragmentPrefab)
         {
-            int idx = rng.Next(cells.Count);
+            int idx = UnityEngine.Random.Range(0, cells.Count);
             var cell = cells[idx];
-
             var go = Instantiate(soulFragmentPrefab, CellCenterToWorld(cell, f), Quaternion.identity, floorContainers[f]);
             SnapToFloorByRendererHeight(go.transform, f);
             spawnedEntities[f].Add(go);
 
-            cells.RemoveAt(idx);
+            // >>> BRÚJULA: fragmento legacy (no activo) NO debe ser primario
+            var ct = go.GetComponent<CompassTarget>() ?? go.AddComponent<CompassTarget>();
+            ct.isPrimary = false;
+            // -----------------------------------------------
         }
     }
 
@@ -577,32 +815,27 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         var cells = GetFreeCells(f);
         if (cells.Count == 0) return;
 
-        Vector2Int playerCell = WorldToCell(player ? player.position : Vector3.zero);
-        bool playerOnThis = (GetPlayerFloor() == f);
-
-        cells.RemoveAll(c =>
-            sanctuaryGrid[f, c.x, c.y] ||
-            (playerOnThis && (Mathf.Abs(c.x - playerCell.x) + Mathf.Abs(c.y - playerCell.y) <= 4))
-        );
-
         int enemies = autoScaleByMapSize ? ScaledCount(enemyDensity, minEnemies, maxEnemies) : minEnemies;
 
         for (int i = 0; i < enemies && cells.Count > 0; i++)
         {
-            var prefab = enemyPrefabs[rng.Next(enemyPrefabs.Count)];
-            int idx = rng.Next(cells.Count);
+            var prefab = enemyPrefabs[UnityEngine.Random.Range(0, enemyPrefabs.Count)];
+            int idx = UnityEngine.Random.Range(0, cells.Count);
             var cell = cells[idx];
             var e = Instantiate(prefab, CellCenterToWorld(cell, f), Quaternion.identity, floorContainers[f]);
 
             SnapToFloorByRendererHeight(e.transform, f);
-
             spawnedEntities[f].Add(e);
             cells.RemoveAt(idx);
         }
     }
 
+    void SpawnTorchWallsOnFloor(int f, bool decorative)
+    {
+        if (spawnedTorchWalls[f] == null) spawnedTorchWalls[f] = new List<GameObject>();
+    }
 
-
+    // ==================== WALKABLE / FREECELLS / HELPERS ====================
     void UpdateWalkableGrid()
     {
         for (int f = 0; f < floors; f++)
@@ -615,12 +848,11 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     {
         for (int f = 0; f < floors; f++)
         {
-            if (freeCells[f] == null) freeCells[f] = new List<Vector2Int>();
-            else freeCells[f].Clear();
-
+            var list = freeCells[f];
+            list.Clear();
             for (int x = 0; x < width; x++)
                 for (int y = 0; y < height; y++)
-                    if (maze[f, x, y] == 0) freeCells[f].Add(new Vector2Int(x, y));
+                    if (maze[f, x, y] == 0) list.Add(new Vector2Int(x, y));
         }
     }
 
@@ -631,10 +863,10 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         return copy;
     }
 
+    // Compat: “santuarios” no se usan; Devuelve false siempre.
     public bool[,,] GetSanctuaryGrid()
     {
         var copy = new bool[floors, width, height];
-        Array.Copy(sanctuaryGrid, copy, sanctuaryGrid.Length);
         return copy;
     }
 
@@ -648,12 +880,10 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         return new Vector3(cell.x * cellSize, -floor * floorHeight, cell.y * cellSize);
     }
 
-
     public Vector3 CellCenterToWorld(Vector2Int cell, int floor)
     {
         return new Vector3(cell.x * cellSize, -floor * floorHeight, cell.y * cellSize);
     }
-
 
     public Vector3 BatteryAnchorToWorld(Vector2Int cell, int floor)
     {
@@ -675,28 +905,17 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
     public bool IsWalkable(int floor, Vector2Int cell) => IsWalkable(floor, cell.x, cell.y);
 
-    public bool IsSanctuary(int floor, int x, int y)
-    {
-        if (floor < 0 || floor >= floors || x < 0 || x >= width || y < 0 || y >= height) return false;
-        return sanctuaryGrid[floor, x, y];
-    }
-    public bool IsSanctuary(int floor, Vector2Int cell) => IsSanctuary(floor, cell.x, cell.y);
+    public bool IsSanctuary(int floor, int x, int y) => false;
+    public bool IsSanctuary(int floor, Vector2Int cell) => false;
 
     public int GetCurrentFloor() => currentFloor;
 
-    public void SetSanctuaryCell(int floor, Vector2Int cell, bool value)
-    {
-        if (floor < 0 || floor >= floors) return;
-        if (!Inside(cell)) return;
-        sanctuaryGrid[floor, cell.x, cell.y] = value;
-        OnMapUpdated?.Invoke();
-    }
+    public void SetSanctuaryCell(int floor, Vector2Int cell, bool value) { /* noop */ }
 
     public bool Inside(Vector2Int c) => (c.x >= 0 && c.x < width && c.y >= 0 && c.y < height);
     Vector2Int ClampToBounds(Vector2Int c) =>
         new Vector2Int(Mathf.Clamp(c.x, 0, width - 1), Mathf.Clamp(c.y, 0, height - 1));
 
-    // Ajuste de Y simple (legacy)
     void SnapToFloorY(Transform t, int floor, float lift = 0.02f)
     {
         if (!t) return;
@@ -705,14 +924,24 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         t.position = p;
     }
 
+    void TeleportPlayerToCell(Transform who, Vector2Int cell, int floor)
+    {
+        if (!who) return;
+        var cc = who.GetComponent<CharacterController>();
+        bool had = cc && cc.enabled;
+        if (cc) cc.enabled = false;
+
+        who.position = CellCenterToWorld(cell, floor);
+        SnapToFloorY(who, floor, 0.02f);
+
+        if (cc) cc.enabled = had;
+    }
 
     void SnapToFloorByRendererHeight(Transform t, int floor)
     {
         if (!t) return;
-
         float baseY = -floor * floorHeight;
 
-        // Intentar con Renderer
         Renderer rend = t.GetComponentInChildren<Renderer>();
         if (rend != null)
         {
@@ -721,7 +950,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             return;
         }
 
-        // Si no hay renderer, intentar con Collider
         Collider col = t.GetComponentInChildren<Collider>();
         if (col != null)
         {
@@ -730,7 +958,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             return;
         }
 
-        // Fallback
         t.position = new Vector3(t.position.x, baseY + pickupLiftEpsilon, t.position.z);
     }
 
@@ -738,69 +965,239 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     int ScaledCount(float density, int min, int max)
         => Mathf.Clamp(Mathf.RoundToInt(Area() * density), min, max);
 
-    // Cuenta baterías activas (para lógica de TorchSafeZone)
     public int CountBatteriesAllFloors()
     {
         var all = FindObjectsOfType<BatteryPickup>(includeInactive: false);
         return all?.Length ?? 0;
     }
 
-
-    bool TryFindFarthestFreeCell(int floor, Vector2Int from, out Vector2Int farthest)
+    int GetPlayerFloor()
     {
-        farthest = from;
-        var cells = GetFreeCells(floor);
-        if (cells == null || cells.Count == 0) return false;
-
-        float maxDist = -1f;
-        Vector3 fromWorld = CellCenterToWorld(from, floor);
-
-        for (int i = 0; i < cells.Count; i++)
-        {
-            var c = cells[i];
-            if (sanctuaryGrid[floor, c.x, c.y]) continue; 
-
-            Vector3 pos = CellCenterToWorld(c, floor);
-            float d = Vector3.SqrMagnitude(pos - fromWorld);
-            if (d > maxDist)
-            {
-                maxDist = d;
-                farthest = c;
-            }
-        }
-        return maxDist >= 0f;
+        if (!player) return Mathf.Clamp(currentFloor, 0, floors - 1);
+        return Mathf.Clamp(Mathf.RoundToInt(-player.position.y / floorHeight), 0, floors - 1);
     }
 
-    void TeleportPlayerToCell(Transform who, Vector2Int cell, int floor)
+    public void GoToNextFloor()
     {
-        if (!who) return;
+        ChangeFloor(0);
+    }
 
-
-        var cc = who.GetComponent<CharacterController>();
-        bool hadCC = cc != null && cc.enabled;
-        if (cc != null) cc.enabled = false;
-
-
-        Vector3 p = CellCenterToWorld(cell, floor);
-        who.position = p;
-        SnapToFloorY(who, floor, 0.02f);
-
-        // Re-activar CC
-        if (cc != null) cc.enabled = hadCC;
-
-
-        if (UIManager.Instance && UIManager.Instance.hudRoot)
-            UIManager.Instance.hudRoot.SetActive(true);
-
-        // Re-asegurar linterna activa si existe
-        var lightCtrl = who.GetComponentInChildren<PlayerLightController>(true);
-        if (lightCtrl != null)
+    void ChangeFloor(int newFloor)
+    {
+        if (currentFloor >= 0 && currentFloor < floors && spawnedEntities[currentFloor] != null)
         {
-            lightCtrl.gameObject.SetActive(true);
-            lightCtrl.ForceOnIfHasBattery();
+            foreach (var go in spawnedEntities[currentFloor]) if (go) Destroy(go);
+            spawnedEntities[currentFloor].Clear();
+        }
+        currentFloor = Mathf.Clamp(newFloor, 0, floors - 1);
+    }
+
+    // ==================== TRANSICIÓN FX ====================
+    IEnumerator RunMapChangeFX_Intense(Action doChange)
+    {
+        if (duckGlobalAudio)
+        {
+            _savedAudioListenerVolume = AudioListener.volume;
+            AudioListener.volume = duckVolume;
         }
 
-        var inv = who.GetComponent<PlayerInventory>();
+        if (transitionCanvas)
+        {
+            transitionCanvas.gameObject.SetActive(true);
+            yield return FadeCanvas(transitionCanvas, 0f, 1f, transitionFadeOut);
+        }
 
+        if (sfx && bellClip) sfx.PlayOneShot(bellClip, bellVolume);
+        yield return new WaitForSeconds(transitionHoldBlack);
+
+        doChange?.Invoke();
+
+        if (flashOnExit)
+        {
+            if (transitionFlashCanvas)
+            {
+                transitionFlashCanvas.gameObject.SetActive(true);
+                transitionFlashCanvas.alpha = 0f;
+                yield return FadeCanvas(transitionFlashCanvas, 0f, flashAlpha, flashDuration * 0.5f);
+                yield return FadeCanvas(transitionFlashCanvas, flashAlpha, 0f, flashDuration * 0.5f);
+                transitionFlashCanvas.gameObject.SetActive(false);
+            }
+            else if (transitionCanvas)
+            {
+                yield return FadeCanvas(transitionCanvas, 1f, 0.7f, flashDuration * 0.5f);
+                yield return FadeCanvas(transitionCanvas, 0.7f, 1f, flashDuration * 0.5f);
+            }
+        }
+
+        if (shakeOnExit && player)
+            yield return ShakeTransformOnce(player, shakeAmplitude, shakeTime);
+
+        if (transitionCanvas)
+        {
+            yield return FadeCanvas(transitionCanvas, 1f, 0f, transitionFadeIn);
+            transitionCanvas.gameObject.SetActive(false);
+        }
+
+        if (duckGlobalAudio)
+            AudioListener.volume = _savedAudioListenerVolume;
+    }
+
+    IEnumerator FadeCanvas(CanvasGroup cg, float from, float to, float dur)
+    {
+        cg.alpha = from;
+        float t = 0f;
+        while (t < dur)
+        {
+            t += Time.deltaTime;
+            cg.alpha = Mathf.Lerp(from, to, t / Mathf.Max(0.0001f, dur));
+            yield return null;
+        }
+        cg.alpha = to;
+    }
+
+    IEnumerator ShakeTransformOnce(Transform target, float amplitude, float duration)
+    {
+        if (!target) yield break;
+        Vector3 start = target.localPosition;
+        float t = 0f;
+        while (t < duration)
+        {
+            t += Time.deltaTime;
+            float k = 1f - (t / Mathf.Max(0.0001f, duration));
+            Vector3 off = new Vector3(
+                (UnityEngine.Random.value - 0.5f) * 2f * amplitude * k,
+                (UnityEngine.Random.value - 0.5f) * 2f * amplitude * k,
+                0f
+            );
+            target.localPosition = start + off;
+            yield return null;
+        }
+        target.localPosition = start;
+    }
+
+    // ==================== SPAWN A (JUGADOR) ====================
+    Vector2Int ChooseStartCellNearEdge(int floor)
+    {
+        var free = GetFreeCells(floor);
+        if (free.Count == 0) return new Vector2Int(width / 2, height / 2);
+
+        int BestScore(Vector2Int c)
+        {
+            int toLeft = c.x;
+            int toRight = (width - 1) - c.x;
+            int toDown = c.y;
+            int toUp = (height - 1) - c.y;
+            return Mathf.Min(toLeft, toRight, toDown, toUp);
+        }
+
+        int best = int.MaxValue;
+        List<Vector2Int> cand = new List<Vector2Int>();
+        foreach (var c in free)
+        {
+            int s = BestScore(c);
+            if (s < best) { best = s; cand.Clear(); cand.Add(c); }
+            else if (s == best) cand.Add(c);
+        }
+        return cand[UnityEngine.Random.Range(0, cand.Count)];
+    }
+
+    Vector2Int FindNearestWalkableCell(int floor, Vector2Int from)
+    {
+        from = ClampToBounds(from);
+        if (maze[floor, from.x, from.y] == 0) return from;
+
+        bool[,] visited = new bool[width, height];
+        Queue<Vector2Int> q = new Queue<Vector2Int>();
+        visited[from.x, from.y] = true;
+        q.Enqueue(from);
+
+        int[] dx = { 1, -1, 0, 0 };
+        int[] dy = { 0, 0, 1, -1 };
+
+        while (q.Count > 0)
+        {
+            var c = q.Dequeue();
+            for (int i = 0; i < 4; i++)
+            {
+                int nx = c.x + dx[i], ny = c.y + dy[i];
+                if (!Inside(new Vector2Int(nx, ny)) || visited[nx, ny]) continue;
+                visited[nx, ny] = true;
+
+                if (maze[floor, nx, ny] == 0)
+                    return new Vector2Int(nx, ny);
+
+                q.Enqueue(new Vector2Int(nx, ny));
+            }
+        }
+        return ClampToBounds(from);
+    }
+
+    // ==================== PRIORITY QUEUE PARA A* ====================
+    class PriorityQueue<T>
+    {
+        List<(T item, int pri)> heap = new List<(T, int)>();
+        Dictionary<T, int> loc = new Dictionary<T, int>();
+        public int Count => heap.Count;
+
+        public void Enqueue(T item, int pri)
+        {
+            heap.Add((item, pri));
+            loc[item] = heap.Count - 1;
+            Up(heap.Count - 1);
+        }
+
+        public void EnqueueOrDecrease(T item, int pri)
+        {
+            if (loc.TryGetValue(item, out int idx))
+            {
+                if (pri < heap[idx].pri)
+                {
+                    heap[idx] = (item, pri);
+                    Up(idx);
+                }
+                return;
+            }
+            Enqueue(item, pri);
+        }
+
+        public T Dequeue()
+        {
+            var root = heap[0].item;
+            Swap(0, heap.Count - 1);
+            loc.Remove(root);
+            heap.RemoveAt(heap.Count - 1);
+            Down(0);
+            return root;
+        }
+
+        void Up(int i)
+        {
+            while (i > 0)
+            {
+                int p = (i - 1) / 2;
+                if (heap[i].pri >= heap[p].pri) break;
+                Swap(i, p); i = p;
+            }
+        }
+
+        void Down(int i)
+        {
+            int n = heap.Count;
+            while (true)
+            {
+                int l = i * 2 + 1, r = l + 1, s = i;
+                if (l < n && heap[l].pri < heap[s].pri) s = l;
+                if (r < n && heap[r].pri < heap[s].pri) s = r;
+                if (s == i) break;
+                Swap(i, s); i = s;
+            }
+        }
+
+        void Swap(int a, int b)
+        {
+            if (a == b) return;
+            var tmp = heap[a]; heap[a] = heap[b]; heap[b] = tmp;
+            loc[heap[a].item] = a; loc[heap[b].item] = b;
+        }
     }
 }

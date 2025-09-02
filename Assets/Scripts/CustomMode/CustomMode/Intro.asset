@@ -21,6 +21,10 @@ MonoBehaviour:
     estoy muerto?\n\nMientras esas preguntas me atraviesan, un murmullo retumba desde
     aquellas presencias. Un sonido grave, imposible de ignorar\".\n\n\u2014\xBFQu\xE9
     te guiaba cuando respirabas sal y p\xF3lvora?"
+  backgroundSprite: {fileID: 21300000, guid: ec3792358b504044299b14b35f395599, type: 3}
+  backgroundSprites:
+  - {fileID: 21300000, guid: ec3792358b504044299b14b35f395599, type: 3}
+  bgTint: {r: 1, g: 1, b: 1, a: 1}
   options:
   - text: "La codicia me abr\xEDa camino"
     effects:
@@ -29,7 +33,7 @@ MonoBehaviour:
       batteryDrain: 0.05
       batteryDensity: 0.15
       fragmentDensity: 0.05
-      floorsDelta: 1
+      fragmentsDelta: 0
       mapSizePercent: 0.1
       torchesOnlyStartFew: 0
       enemy2DrainsBattery: 0
@@ -42,7 +46,7 @@ MonoBehaviour:
       batteryDrain: -0.05
       batteryDensity: 0.15
       fragmentDensity: 0
-      floorsDelta: 0
+      fragmentsDelta: 0
       mapSizePercent: 0
       torchesOnlyStartFew: 2
       enemy2DrainsBattery: 0
@@ -55,7 +59,7 @@ MonoBehaviour:
       batteryDrain: 0
       batteryDensity: -0.05
       fragmentDensity: 0.05
-      floorsDelta: 2
+      fragmentsDelta: 0
       mapSizePercent: 0.15
       torchesOnlyStartFew: 0
       enemy2DrainsBattery: 0

@@ -12,19 +12,11 @@ public class PlayerLightController : MonoBehaviour
     [Header("Offset local (hacia adelante)")]
     public Vector3 localOffset = new Vector3(0, 0, 0.2f);
 
-    [Header("Luz")]
+    [Header("Luz (base)")]
     public float minRange = 5f;
     public float maxRange = 15f;
     public float flickerSpeed = 0.1f;
     public float baseIntensity = 1.2f;
-
-    [Header("Consumo / Energía")]
-    [Tooltip("Consumo base por segundo (se multiplica por LOW/HIGH).")]
-    public float drainRate = 1f;
-    [Tooltip("Multiplicador de consumo cuando estás en LOW (clic izquierdo).")]
-    [Range(0.1f, 1.0f)] public float lowDrainMultiplier = 0.6f;
-    [Tooltip("Multiplicador de consumo cuando estás en HIGH (clic derecho).")]
-    [Range(0.6f, 2.0f)] public float highDrainMultiplier = 1.0f;
 
     [Header("Batería (legacy si no hay BatterySystem)")]
     public float maxBattery = 30f;
@@ -49,155 +41,239 @@ public class PlayerLightController : MonoBehaviour
     public AudioClip soundOff;
     public float volume = 1f;
 
-    private AudioSource audioSrc;
+    [Header("Integración con sistema de baterías")]
+    public bool batterySystemControlsDrain = false;
 
+    // ===== Haz por modo =====
+    [Header("Beam por modo")]
+    [Range(0.3f, 0.95f)] public float lowAngleScale = 0.75f;
+    [Range(0.3f, 0.95f)] public float lowRangeScale = 0.85f;
+    [Range(0.5f, 1.0f)] public float lowIntensityScale = 0.9f;
+    public bool overrideHighAngle = true;
+    [Range(10f, 120f)] public float highAngleOverride = 60f;
+
+    // ===== Consumo por porcentaje =====
+    [Header("Consumo por porcentaje")]
+    [Range(0.001f, 0.2f)] public float baseDrainPercentPerSecond = 0.03f;
+    [Range(0.2f, 1.0f)] public float lowPercentMult = 0.55f;
+    [Range(0.6f, 2.0f)] public float highPercentMult = 1.25f;
+
+    [Header("Multiplicadores por batería")]
+    public float greenDrainMult = 1.0f;
+    public float redDrainMult = 1.3f;
+    public float blueDrainMult = 0.85f;
+
+    // ===== Detección de enemigos =====
+    [Header("Detección de enemigos")]
+    public bool queryAllLayers = true;
+    public LayerMask enemyLayer = ~0;
+    public bool requireEnemyTag = false;
+    public string enemyTag = "Enemy";
+
+    // ===== Debug =====
+    [Header("Debug")]
+    public bool debugEnemyHit = false;          // log por enemigo impactado
+    public bool debugTrace = true;              // logs de flujo (por qué se aborta)
+    public bool debugVerboseRejects = false;    // por qué se descarta cada collider
+    public bool debugDrawCone = true;           // dibuja cono y rango en escena
+    public Color gizmoColorHigh = new Color(1f, 1f, 0f, 0.25f);
+    public Color gizmoColorLow = new Color(0f, 1f, 1f, 0.25f);
+
+    // Runtime
+    private AudioSource audioSrc;
     private Light lamp;
     private bool isOn = false;
     private Coroutine blinkRoutine;
-
-    // Legacy
-    private float currentBattery;
-
-    // Integración
+    private float currentBattery; // legacy
     private PlayerBatterySystem batteries;
-
-    // Color runtime
     private Color currentLightColor;
-
-    // Modo actual (Low/High/Off)
     private FlashlightUIMode currentMode = FlashlightUIMode.Off;
-    private FlashlightUIMode lastModePlayed = FlashlightUIMode.Off; // para sonido
+    private FlashlightUIMode lastModePlayed = FlashlightUIMode.Off;
+    private Collider[] hitsBuffer;
+    private float originalSpotAngle = 60f;
+    private bool warnedNoCamera = false;
 
     void Awake()
     {
         lamp = GetComponent<Light>();
         lamp.type = LightType.Spot;
-        lamp.spotAngle = 60f;
+
+        originalSpotAngle = lamp.spotAngle > 0f ? lamp.spotAngle : originalSpotAngle;
+        lamp.spotAngle = originalSpotAngle;
         lamp.intensity = baseIntensity;
-        RenderSettings.ambientIntensity = 0.1f;
 
         currentBattery = maxBattery; // legacy
 
         batteries = GetComponent<PlayerBatterySystem>();
-        if (batteries == null) batteries = GetComponentInParent<PlayerBatterySystem>();
-        if (batteries == null) batteries = FindObjectOfType<PlayerBatterySystem>();
+        if (!batteries) batteries = GetComponentInParent<PlayerBatterySystem>();
+        if (!batteries) batteries = FindObjectOfType<PlayerBatterySystem>();
 
         currentLightColor = legacyColor;
         lamp.color = currentLightColor;
 
-        if (playerCamera == null)
-            Debug.LogError("Asigna la Main Camera al PlayerLightController.");
+        if (!playerCamera)
+        {
+            var main = Camera.main;
+            if (main) playerCamera = main;
+            if (!playerCamera)
+            {
+                var anyCam = FindObjectOfType<Camera>();
+                if (anyCam) playerCamera = anyCam;
+            }
+        }
+        if (!playerCamera && debugTrace && !warnedNoCamera)
+        {
+            Debug.LogWarning("[Light] No hay Camera asignada ni MainCamera en escena.");
+            warnedNoCamera = true;
+        }
 
         audioSrc = GetComponent<AudioSource>();
         if (!audioSrc) audioSrc = gameObject.AddComponent<AudioSource>();
         audioSrc.playOnAwake = false;
-        audioSrc.spatialBlend = 0f; // 2D
+        audioSrc.spatialBlend = 0f;
+
+        hitsBuffer = new Collider[Mathf.Max(64, 256)];
     }
 
     void Start()
     {
         if (batteries != null)
-        {
             OnBatterySwitched(batteries.activeType);
-        }
+
+        SetLampEnabled(false);
     }
 
     void Update()
     {
-        if (playerCamera == null) return;
+        if (!playerCamera)
+        {
+            if (debugTrace) Debug.LogWarning("[Light] Sin cámara: no puedo actualizar linterna.");
+            return;
+        }
 
-        // --- Entrada: mantener pulsado ---
+        // Entrada
         bool leftPressed = Input.GetMouseButton(0);   // LOW
-        bool rightPressed = Input.GetMouseButton(1);  // HIGH
+        bool rightPressed = Input.GetMouseButton(1);   // HIGH
 
-        // Prioridad: HIGH si el derecho está pulsado; si no, LOW
-        if (rightPressed) currentMode = FlashlightUIMode.High;
-        else if (leftPressed) currentMode = FlashlightUIMode.Low;
-        else currentMode = FlashlightUIMode.Off;
+        FlashlightUIMode desiredMode = FlashlightUIMode.Off;
+        if (rightPressed) desiredMode = FlashlightUIMode.High;
+        else if (leftPressed) desiredMode = FlashlightUIMode.Low;
 
-        // Si no hay batería, forzar Off
-        if (GetBatteryNormalized() <= 0f) currentMode = FlashlightUIMode.Off;
+        if (GetBatteryNormalized() <= 0f) desiredMode = FlashlightUIMode.Off;
 
-        bool wantOn = (currentMode != FlashlightUIMode.Off);
+        bool wantOn = (desiredMode != FlashlightUIMode.Off);
+
         if (wantOn != isOn)
         {
             isOn = wantOn;
             PlayToggleSound(isOn);
+            SetLampEnabled(isOn);
+            StopBlinkIfRunning();
+            if (isOn && debugTrace) Debug.Log("[Light] ON");
+            if (!isOn && debugTrace) Debug.Log("[Light] OFF");
+        }
+
+        if (isOn && desiredMode != currentMode)
+        {
+            currentMode = desiredMode;
+            PlayToggleSound(true);
+            lastModePlayed = currentMode;
+            if (debugTrace) Debug.Log($"[Light] Modo -> {currentMode}");
+        }
+        else if (!isOn)
+        {
+            currentMode = FlashlightUIMode.Off;
+            lastModePlayed = FlashlightUIMode.Off;
         }
 
         if (isOn)
         {
-            // Consumo según modo
-            float mult = (currentMode == FlashlightUIMode.High) ? highDrainMultiplier : lowDrainMultiplier;
-            float consume = drainRate * Mathf.Max(0.05f, mult) * Time.deltaTime;
             bool stillHas = true;
 
-            if (batteries != null)
+            if (!batterySystemControlsDrain)
             {
-                stillHas = batteries.ConsumeActiveBattery(consume);
+                float modeMult = (currentMode == FlashlightUIMode.High) ? highPercentMult : lowPercentMult;
+                float batteryMult = 1f;
+                var bType = (batteries != null) ? batteries.activeType : BatteryType.Green;
+                switch (bType)
+                {
+                    case BatteryType.Green: batteryMult = greenDrainMult; break;
+                    case BatteryType.Red: batteryMult = redDrainMult; break;
+                    case BatteryType.Blue: batteryMult = blueDrainMult; break;
+                }
+
+                float pctPerSec = baseDrainPercentPerSecond * Mathf.Max(0.01f, modeMult) * batteryMult;
+                float maxCap = (batteries != null)
+                    ? Mathf.Max(0.0001f, batteries.GetMax(bType))
+                    : Mathf.Max(0.0001f, maxBattery);
+
+                float amount = maxCap * pctPerSec * Time.deltaTime;
+
+                if (batteries != null)
+                    stillHas = batteries.ConsumeActiveBattery(amount);
+                else
+                {
+                    currentBattery = Mathf.Max(0f, currentBattery - amount);
+                    stillHas = currentBattery > 0f;
+                }
             }
             else
-            {
-                currentBattery = Mathf.Max(0f, currentBattery - consume);
-                stillHas = currentBattery > 0f;
-            }
+                stillHas = GetBatteryNormalized() > 0f;
 
             if (!stillHas)
             {
                 isOn = false;
                 currentMode = FlashlightUIMode.Off;
                 StopBlinkIfRunning();
-                lamp.enabled = false;
+                SetLampEnabled(false);
+                if (debugTrace) Debug.Log("[Light] Batería agotada, apagando.");
             }
             else
             {
-                // Flicker + rango
-                float t = 0.5f + 0.5f * Mathf.PerlinNoise(Time.time * flickerSpeed, 0f);
-                lamp.range = Mathf.Lerp(minRange, maxRange, t);
+                // VISUALES por modo
+                float tNoise = 0.5f + 0.5f * Mathf.PerlinNoise(Time.time * flickerSpeed, 0f);
+                float p = GetBatteryNormalized();
 
-                // Intensidad escala con batería
-                float tBattery = GetBatteryNormalized();
-                lamp.intensity = Mathf.Lerp(baseIntensity * 0.6f, baseIntensity, tBattery);
+                if (currentMode == FlashlightUIMode.High)
+                {
+                    float highAngle = overrideHighAngle ? highAngleOverride : originalSpotAngle;
+                    lamp.spotAngle = highAngle; // HAZ GRANDE (como original)
+                    lamp.range = Mathf.Lerp(minRange, maxRange, tNoise);
+                    lamp.intensity = Mathf.Lerp(baseIntensity * 0.7f, baseIntensity, p);
+                }
+                else // LOW
+                {
+                    lamp.spotAngle = originalSpotAngle * lowAngleScale; // HAZ MÁS PEQUEÑO
+                    float lowMin = minRange * lowRangeScale;
+                    float lowMax = maxRange * lowRangeScale;
+                    lamp.range = Mathf.Lerp(lowMin, lowMax, tNoise);
+                    lamp.intensity = Mathf.Lerp(baseIntensity * 0.6f, baseIntensity, p) * lowIntensityScale;
+                }
 
-                // Parpadeo crítico
-                if (tBattery <= criticalBatteryThreshold)
+                if (p <= criticalBatteryThreshold)
                 {
                     if (blinkRoutine == null) blinkRoutine = StartCoroutine(BlinkLoop());
                 }
-                else
-                {
-                    StopBlinkIfRunning();
-                    lamp.enabled = true;
-                }
+                else { StopBlinkIfRunning(); lamp.enabled = true; }
 
-                // Color by battery
                 UpdateTintByBattery();
-
-                // Notificar a enemigos (modo detallado)
-                AffectEnemiesInLight();
+                AffectEnemiesInLight(); // <<<<<< clave
             }
         }
         else
         {
             StopBlinkIfRunning();
-            lamp.enabled = false;
+            SetLampEnabled(false);
         }
 
-        // Posicionar la luz con la cámara
-        transform.position = playerCamera.transform.position +
-                             playerCamera.transform.TransformVector(localOffset);
+        // Posición/rotación de la luz
+        transform.position = playerCamera.transform.position + playerCamera.transform.TransformVector(localOffset);
         transform.rotation = playerCamera.transform.rotation;
+    }
 
-        // Sonido de cambio de modo (opcional: solo cuando cambia entre Low/High)
-        if (isOn && currentMode != lastModePlayed)
-        {
-            PlayToggleSound(true);
-            lastModePlayed = currentMode;
-        }
-        else if (!isOn)
-        {
-            lastModePlayed = FlashlightUIMode.Off;
-        }
+    private void SetLampEnabled(bool on)
+    {
+        if (lamp && lamp.enabled != on) lamp.enabled = on;
     }
 
     private void PlayToggleSound(bool turningOn)
@@ -219,7 +295,6 @@ public class PlayerLightController : MonoBehaviour
                 case BatteryType.Blue: target = blueColor; break;
             }
         }
-
         currentLightColor = Color.Lerp(currentLightColor, target, Time.deltaTime * colorLerpSpeed);
         lamp.color = currentLightColor;
     }
@@ -228,7 +303,11 @@ public class PlayerLightController : MonoBehaviour
     {
         while (true)
         {
-            if (!isOn || GetBatteryNormalized() <= 0f) { lamp.enabled = false; yield break; }
+            if (!isOn || GetBatteryNormalized() <= 0f)
+            {
+                lamp.enabled = false;
+                yield break;
+            }
             lamp.enabled = !lamp.enabled;
             yield return new WaitForSeconds(Random.Range(blinkMin, blinkMax));
         }
@@ -243,61 +322,133 @@ public class PlayerLightController : MonoBehaviour
         }
     }
 
+    // ====== DETECCIÓN + NOTIFICACIÓN A ENEMIGOS ======
     private void AffectEnemiesInLight()
     {
-        if (!lamp.enabled) return;
-
-        Collider[] hits = Physics.OverlapSphere(transform.position, lamp.range);
-        for (int i = 0; i < hits.Length; i++)
+        if (!lamp)
         {
-            var hit = hits[i];
-            if (!hit.CompareTag("Enemy")) continue;
+            if (debugTrace) Debug.LogWarning("[Light] No hay componente Light.");
+            return;
+        }
+        if (!lamp.enabled)
+        {
+            if (debugTrace) Debug.Log("[Light] Lámpara deshabilitada: no se detecta.");
+            return;
+        }
 
-            Vector3 dirToEnemy = (hit.transform.position - transform.position).normalized;
-            float angle = Vector3.Angle(transform.forward, dirToEnemy);
-            if (angle >= lamp.spotAngle / 2f) continue;
+        int layerMask = queryAllLayers ? Physics.AllLayers : (int)enemyLayer;
 
-            EnemyFSM enemy = hit.GetComponent<EnemyFSM>();
-            if (enemy == null) continue;
+        if (hitsBuffer == null || hitsBuffer.Length < 64) hitsBuffer = new Collider[64];
 
-            // Intensidad (1 centro, 0 borde)
-            float intensity01 = 1f - Mathf.Clamp01(angle / (lamp.spotAngle * 0.5f));
+        int count = Physics.OverlapSphereNonAlloc(
+            transform.position, lamp.range, hitsBuffer, layerMask, QueryTriggerInteraction.Ignore
+        );
 
-            // Determinar modo actual
-            FlashlightUIMode mode = currentMode;
-            if (mode == FlashlightUIMode.Off) continue;
+        if (debugTrace)
+            Debug.Log($"[Light] Sweep r={lamp.range:0.0} angle={lamp.spotAngle:0} mode={currentMode} hits={count}");
 
-            // Batería activa
-            BatteryType bType = (batteries != null) ? batteries.activeType : BatteryType.Green;
+        float halfAngle = lamp.spotAngle * 0.5f;
 
-            // Notificar de forma detallada
-            enemy.OnFlashlightHitDetailed(bType, mode, Time.deltaTime, intensity01);
+        for (int i = 0; i < count; i++)
+        {
+            var col = hitsBuffer[i];
+            if (!col)
+            {
+                if (debugVerboseRejects) Debug.Log("[Light] hit=null (descartado)");
+                continue;
+            }
+
+            EnemyFSM enemy =
+                col.GetComponent<EnemyFSM>() ??
+                col.GetComponentInParent<EnemyFSM>() ??
+                col.GetComponentInChildren<EnemyFSM>();
+
+            if (!enemy)
+            {
+                if (debugVerboseRejects) Debug.Log($"[Light] {col.name} sin EnemyFSM (descartado)");
+                continue;
+            }
+
+            if (requireEnemyTag)
+            {
+                bool hasTag = col.CompareTag(enemyTag) || enemy.CompareTag(enemyTag);
+                if (!hasTag)
+                {
+                    if (debugVerboseRejects) Debug.Log($"[Light] {enemy.name} sin tag '{enemyTag}' (descartado)");
+                    continue;
+                }
+            }
+
+            Vector3 center = col.bounds.center;
+            Vector3 toEnemy = (center - transform.position);
+            float dist = toEnemy.magnitude;
+            if (dist > lamp.range)
+            {
+                if (debugVerboseRejects) Debug.Log($"[Light] {enemy.name} fuera de rango ({dist:0.00})");
+                continue;
+            }
+
+            Vector3 dir = toEnemy / Mathf.Max(0.0001f, dist);
+            float angle = Vector3.Angle(transform.forward, dir);
+            if (angle > halfAngle)
+            {
+                if (debugVerboseRejects) Debug.Log($"[Light] {enemy.name} fuera de cono (ang={angle:0})");
+                continue;
+            }
+
+            var bType = (batteries != null) ? batteries.activeType : BatteryType.Green;
+            if (currentMode == FlashlightUIMode.Off)
+            {
+                if (debugVerboseRejects) Debug.Log($"[Light] {enemy.name} -> modo Off (descartado)");
+                continue;
+            }
+
+            // IMPACTO: detener ataque + huida opuesta
+            enemy.OnLightImpact(
+                lightOrigin: transform.position,
+                lightForward: transform.forward,
+                battery: bType,
+                mode: currentMode
+            );
+
+            if (debugEnemyHit)
+                Debug.Log($"[Light] Impact {enemy.name} dist={dist:0.0} angle={angle:0} mode={currentMode} battery={bType}");
         }
     }
 
-    // ===================== API pública =====================
-
+    // ===== API pública =====
     public float GetBatteryNormalized()
     {
-        if (batteries != null)
-            return batteries.GetActiveBatteryNormalized();
+        if (batteries != null) return batteries.GetActiveBatteryNormalized();
         return maxBattery > 0 ? currentBattery / maxBattery : 0f;
     }
 
     public bool IsOn() => isOn;
-    public float GetLowThreshold() => lowBatteryThreshold;
-    public float GetCriticalThreshold() => criticalBatteryThreshold;
 
     public void ForceOnIfHasBattery()
     {
-        if (GetBatteryNormalized() > 0f) isOn = true;
+        if (GetBatteryNormalized() > 0f)
+        {
+            isOn = true;
+            SetLampEnabled(true);
+            StopBlinkIfRunning();
+            lamp.enabled = true;
+        }
+    }
+
+    public void ForceOff()
+    {
+        isOn = false;
+        currentMode = FlashlightUIMode.Off;
+        StopBlinkIfRunning();
+        SetLampEnabled(false);
     }
 
     public void RechargeBattery(float amount)
     {
         if (batteries != null) return;
         currentBattery = Mathf.Min(maxBattery, currentBattery + amount);
-        if (currentBattery > 0f) isOn = true;
+        if (currentBattery > 0f) ForceOnIfHasBattery();
     }
 
     public void SetLightColor(Color newColor)
@@ -308,31 +459,75 @@ public class PlayerLightController : MonoBehaviour
 
     public void OnBatterySwitched(BatteryType newType)
     {
-        Color target = legacyColor;
         switch (newType)
         {
-            case BatteryType.Green: target = greenColor; break;
-            case BatteryType.Red: target = redColor; break;
-            case BatteryType.Blue: target = blueColor; break;
+            case BatteryType.Green: currentLightColor = greenColor; break;
+            case BatteryType.Red: currentLightColor = redColor; break;
+            case BatteryType.Blue: currentLightColor = blueColor; break;
+            default: currentLightColor = legacyColor; break;
         }
-        currentLightColor = target;
         if (lamp != null) lamp.color = currentLightColor;
     }
 
-    // === API para HUD / otros sistemas ===
-    public FlashlightUIMode GetCurrentMode()
-    {
-        return currentMode;
-    }
+    public FlashlightUIMode GetCurrentMode() => currentMode;
 
     public float GetCurrentDrainPerSecondForHUD()
     {
         if (currentMode == FlashlightUIMode.Off) return 0f;
 
-        float mult = (currentMode == FlashlightUIMode.High)
-            ? Mathf.Max(0.01f, highDrainMultiplier)
-            : Mathf.Max(0.01f, lowDrainMultiplier);
+        float modeMult = (currentMode == FlashlightUIMode.High) ? highPercentMult : lowPercentMult;
+        float bMult = 1f;
+        var bType = (batteries != null) ? batteries.activeType : BatteryType.Green;
+        switch (bType)
+        {
+            case BatteryType.Green: bMult = greenDrainMult; break;
+            case BatteryType.Red: bMult = redDrainMult; break;
+            case BatteryType.Blue: bMult = blueDrainMult; break;
+        }
 
-        return drainRate * mult;
+        float pctPerSec = baseDrainPercentPerSecond * Mathf.Max(0.01f, modeMult) * bMult;
+        float maxCap = (batteries != null)
+            ? Mathf.Max(0.0001f, batteries.GetMax(bType))
+            : Mathf.Max(0.0001f, maxBattery);
+
+        return maxCap * pctPerSec;
+    }
+
+    // ===== Gizmos para ver el cono =====
+    void OnDrawGizmosSelected()
+    {
+        if (!debugDrawCone) return;
+        if (!lamp) lamp = GetComponent<Light>();
+        if (!lamp) return;
+
+        float r = lamp.range;
+        float half = lamp.spotAngle * 0.5f;
+
+        // color según modo
+        Gizmos.color = (currentMode == FlashlightUIMode.High) ? gizmoColorHigh : gizmoColorLow;
+
+        // Dibuja “cono” aproximado (círculo al final + líneas)
+        Vector3 origin = transform.position;
+        Vector3 forward = transform.forward;
+
+        // plano del círculo final
+        Vector3 right = Quaternion.AngleAxis(half, transform.up) * forward;
+        Vector3 left = Quaternion.AngleAxis(-half, transform.up) * forward;
+
+        Gizmos.DrawLine(origin, origin + forward * r);
+        Gizmos.DrawLine(origin, origin + right * r);
+        Gizmos.DrawLine(origin, origin + left * r);
+
+        // dibujar círculo aproximado
+        int seg = 24;
+        Vector3 prev = origin + (Quaternion.AngleAxis(-half, transform.up) * forward) * r;
+        for (int i = 1; i <= seg; i++)
+        {
+            float t = -half + (lamp.spotAngle) * (i / (float)seg);
+            Vector3 dir = Quaternion.AngleAxis(t, transform.up) * forward;
+            Vector3 p = origin + dir * r;
+            Gizmos.DrawLine(prev, p);
+            prev = p;
+        }
     }
 }

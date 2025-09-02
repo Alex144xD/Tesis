@@ -157,7 +157,6 @@ public class PathfindingAStar : MonoBehaviour
         return path != null && path.Count > 0;
     }
 
-
     public Vector3 FindWanderTarget(int floor, Vector3 fromWorld, Transform player, float minDistCells = 4f)
     {
         var map = MultiFloorDynamicMapManager.Instance;
@@ -172,7 +171,6 @@ public class PathfindingAStar : MonoBehaviour
 
         foreach (var c in free)
         {
-            if (map.IsSanctuary(floor, c)) continue;
             float dFrom = Mathf.Abs(c.x - fromCell.x) + Mathf.Abs(c.y - fromCell.y);
             float dPlr = Mathf.Abs(c.x - playerCell.x) + Mathf.Abs(c.y - playerCell.y);
             float score = dPlr + 0.25f * dFrom;
@@ -245,7 +243,7 @@ public class PathfindingAStar : MonoBehaviour
             return single;
         }
 
-        // Normalizar semillas (primero evitando santuarios)
+        // Primera pasada
         start = NormalizeSeed(map, floor, start, w, h, avoidSanctuary: true);
         target = NormalizeSeed(map, floor, target, w, h, avoidSanctuary: true);
 
@@ -257,7 +255,7 @@ public class PathfindingAStar : MonoBehaviour
             return path;
         }
 
-        // Segunda pasada (permisiva)
+        // Segunda pasada (idéntica ahora que no hay santuarios)
         start = NormalizeSeed(map, floor, start, w, h, avoidSanctuary: false);
         target = NormalizeSeed(map, floor, target, w, h, avoidSanctuary: false);
 
@@ -383,7 +381,6 @@ public class PathfindingAStar : MonoBehaviour
         }
     }
 
-
     static float PRand01(int x, int y, int seed)
     {
         unchecked
@@ -425,18 +422,14 @@ public class PathfindingAStar : MonoBehaviour
 
         if (waypointsUseBatteryAnchor)
         {
-
             Vector3 p = map.CellToWorld(cell, floor);
             return new Vector3(p.x, p.y + waypointYOffset, p.z);
         }
         else
         {
-
             return useInset ? GridToWorldInset(cell, floor) : CellCenterToWorld(cell, floor);
         }
     }
-
-
 
     Vector2Int NormalizeSeed(MultiFloorDynamicMapManager map, int floor, Vector2Int cell, int w, int h, bool avoidSanctuary)
     {
@@ -449,7 +442,7 @@ public class PathfindingAStar : MonoBehaviour
 
         int sx = cell.x, sy = cell.y;
         int sid = Idx(sx, sy, w);
-        closed[sid] = true; 
+        closed[sid] = true;
         queueX[tail] = sx; queueY[tail] = sy; tail++;
 
         var neigh = allowDiagonals ? _neigh8 : _neigh4;
@@ -585,14 +578,11 @@ public class PathfindingAStar : MonoBehaviour
         return cnt;
     }
 
+    // Ya no se evalúan santuarios; solo caminabilidad.
     bool IsWalkablePolicy(MultiFloorDynamicMapManager map, int floor, int x, int y, bool avoidSanctuary)
     {
-        if (!map.IsWalkable(floor, x, y)) return false;
-        if (avoidSanctuary && map.IsSanctuary(floor, x, y)) return false;
-        return true;
+        return map.IsWalkable(floor, x, y);
     }
-
-
 
     void SmoothPathInPlace(MultiFloorDynamicMapManager map, int floor, List<Vector3> path, bool avoidSanctuary)
     {
@@ -661,7 +651,6 @@ public class PathfindingAStar : MonoBehaviour
         return true;
     }
 
-
     void DensifyPathInPlace(MultiFloorDynamicMapManager map, int floor, List<Vector3> path, bool avoidSanctuary, int everyCells)
     {
         if (path == null || path.Count < 2) return;
@@ -715,7 +704,6 @@ public class PathfindingAStar : MonoBehaviour
             outCells.Add(new Vector2Int(x0, y0));
         }
     }
-
 
     void HeapPush(int id, float f)
     {
@@ -786,8 +774,6 @@ public class PathfindingAStar : MonoBehaviour
         heapPos[va] = b; heapPos[vb] = a;
     }
 
- 
-
     static readonly Vector2Int[] _neigh4 = new Vector2Int[]
     {
         new Vector2Int( 1, 0),
@@ -812,7 +798,6 @@ public class PathfindingAStar : MonoBehaviour
     static readonly List<Vector2Int> _cellCache = new List<Vector2Int>(64);
     static readonly List<Vector2Int> _tmpCells = new List<Vector2Int>(128);
 
-
     void SaveLastPath(List<Vector3> p)
     {
         _lastPath.Clear();
@@ -832,8 +817,6 @@ public class PathfindingAStar : MonoBehaviour
                 Gizmos.DrawLine(v, _lastPath[i + 1]);
         }
     }
-
-
 
     void DecayTrafficGrid()
     {

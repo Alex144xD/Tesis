@@ -8,15 +8,25 @@ using System.Collections.Generic;
 public class CustomModeStoryPanel : MonoBehaviour
 {
     [Header("UI")]
-    public TextMeshProUGUI titleText;        
-    public TextMeshProUGUI bodyText;       
-    public Button optionButtonPrefab;         
+    public TextMeshProUGUI titleText;
+    public TextMeshProUGUI bodyText;
+    public Button optionButtonPrefab;
 
     [Header("Historia")]
     public CustomModeStoryNode startNode;
 
     [Header("Aparición")]
     public bool autoOpenOnEnable = true;
+
+    [Header("Fondos por nodo (múltiples capas)")]
+    [Tooltip("Contenedor donde se crearán las capas (Images). Debe estar detrás del texto.")]
+    public RectTransform backgroundContainer;
+    [Tooltip("Plantilla opcional (desactivada) para instanciar cada capa. Si es null, se crearán Images simples.")]
+    public Image backgroundImageTemplate;
+    [Tooltip("Forzar que cada capa estire al tamaño del contenedor (anchor stretch).")]
+    public bool stretchLayersToContainer = true;
+    [Tooltip("Conservar aspecto del sprite en cada capa (si el Image lo soporta).")]
+    public bool preserveAspectEachLayer = true;
 
     [Header("Layout (botones desde el centro hacia abajo)")]
     public float buttonHeight = 44f;
@@ -35,10 +45,11 @@ public class CustomModeStoryPanel : MonoBehaviour
 
     [Header("Límites finales")]
     public float mulMin = 0.6f, mulMax = 1.6f;
-    public int floorsMin = 1, floorsMax = 9;
+    [Tooltip("Mínimo y máximo de FRAGMENTOS objetivo (no pisos).")]
+    public int fragmentsMin = 1, fragmentsMax = 9;
 
     [Header("Límites de tamaño de mapa (multiplicador)")]
-    public float mapMulMin = 0.6f, mapMulMax = 1.6f; // ← NUEVO
+    public float mapMulMin = 0.6f, mapMulMax = 1.6f;
 
     [Header("Debug")]
     public bool debugLogs = false;
@@ -49,12 +60,11 @@ public class CustomModeStoryPanel : MonoBehaviour
 
     // Acumuladores
     float accEnemyStat, accEnemyDensity, accBatteryDrain, accBatteryDensity, accFragmentDensity;
-    int accFloors;
-    float accMapSizePct; // ← NUEVO
+    int accFragments;
+    float accMapSizePct;
 
     TriBool f_torchesFew = TriBool.Unset, f_enemy2Drain = TriBool.Unset, f_enemy3Resist = TriBool.Unset;
-
-    bool _locked; // <- debounce
+    bool _locked;
 
     RectTransform PanelRT => (RectTransform)transform;
 
@@ -62,6 +72,10 @@ public class CustomModeStoryPanel : MonoBehaviour
     {
         if (optionButtonPrefab && optionButtonPrefab.gameObject.activeSelf)
             optionButtonPrefab.gameObject.SetActive(false);
+
+        // Asegura que el template (si existe) esté desactivado para clonar limpio
+        if (backgroundImageTemplate && backgroundImageTemplate.gameObject.activeSelf)
+            backgroundImageTemplate.gameObject.SetActive(false);
     }
 
     void OnEnable()
@@ -79,6 +93,9 @@ public class CustomModeStoryPanel : MonoBehaviour
 
         if (Application.isPlaying && spawnedButtons != null && spawnedButtons.Count > 0)
             LayoutButtonsFromCenterDown();
+
+        fragmentsMin = Mathf.Clamp(fragmentsMin, 1, 9);
+        fragmentsMax = Mathf.Clamp(fragmentsMax, fragmentsMin, 9);
     }
 
     public void Open()
@@ -92,19 +109,27 @@ public class CustomModeStoryPanel : MonoBehaviour
 
     public void Close() => gameObject.SetActive(false);
 
+    // ====================== RENDER ======================
     void RenderCurrent()
     {
+        // Limpia botones anteriores
         for (int i = 0; i < spawnedButtons.Count; i++)
             if (spawnedButtons[i]) Destroy(spawnedButtons[i]);
         spawnedButtons.Clear();
 
+        // Si no hay nodo actual, finalizar
         if (!current) { FinishAndApply(); return; }
 
+        // Título y cuerpo
         string narr = current.narrative ?? string.Empty;
         SplitFirstLine(narr, out string firstLine, out string rest);
         if (titleText) titleText.text = firstLine;
         if (bodyText) bodyText.text = string.IsNullOrEmpty(rest) ? (string.IsNullOrEmpty(firstLine) ? "<i>(Sin texto)</i>" : firstLine) : rest;
 
+        // === Fondos por nodo (múltiples capas) ===
+        ApplyBackgroundLayersForNode(current);
+
+        // Sin opciones => finalizar
         if (current.options == null || current.options.Length == 0)
         {
             if (debugLogs) Debug.LogWarning("[Story] Nodo sin opciones, finalizando.");
@@ -112,6 +137,7 @@ public class CustomModeStoryPanel : MonoBehaviour
             return;
         }
 
+        // Crear botones de opciones
         foreach (var opt in current.options)
         {
             var captured = opt;
@@ -132,6 +158,76 @@ public class CustomModeStoryPanel : MonoBehaviour
         LayoutButtonsFromCenterDown();
     }
 
+    // ====================== FONDOS MÚLTIPLES ======================
+    void ApplyBackgroundLayersForNode(CustomModeStoryNode node)
+    {
+        if (!backgroundContainer) return;
+
+        // 1) Limpia capas previas (conserva el template si es hijo del contenedor)
+        for (int i = backgroundContainer.childCount - 1; i >= 0; i--)
+        {
+            var child = backgroundContainer.GetChild(i);
+            if (backgroundImageTemplate && child == backgroundImageTemplate.rectTransform) continue; // conserva template oculto
+            Destroy(child.gameObject);
+        }
+
+        // 2) Determina lista de sprites (incluye compat si solo se puso backgroundSprite)
+        List<Sprite> sprites = null;
+        if (node.backgroundSprites != null && node.backgroundSprites.Count > 0)
+        {
+            sprites = node.backgroundSprites;
+        }
+        else if (node.backgroundSprite != null)
+        {
+            sprites = new List<Sprite> { node.backgroundSprite };
+        }
+
+        if (sprites == null || sprites.Count == 0)
+        {
+            if (debugLogs) Debug.Log("[Story] Nodo sin sprites de fondo.");
+            return;
+        }
+
+        // 3) Crea una capa por sprite (0 = fondo, último = arriba)
+        for (int i = 0; i < sprites.Count; i++)
+        {
+            var sp = sprites[i];
+            if (!sp) continue;
+
+            Image img = null;
+
+            if (backgroundImageTemplate)
+            {
+                img = Instantiate(backgroundImageTemplate, backgroundContainer);
+                img.gameObject.SetActive(true);
+            }
+            else
+            {
+                var go = new GameObject($"BG_Layer_{i}", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+                var rt = (RectTransform)go.transform;
+                rt.SetParent(backgroundContainer, false);
+                img = go.GetComponent<Image>();
+            }
+
+            // Ajustes visuales
+            img.sprite = sp;
+            img.color = node.bgTint;
+            img.preserveAspect = preserveAspectEachLayer;
+
+            // Layout: estirar a contenedor si está activo
+            var rtImg = (RectTransform)img.transform;
+            if (stretchLayersToContainer)
+            {
+                rtImg.anchorMin = Vector2.zero;
+                rtImg.anchorMax = Vector2.one;
+                rtImg.pivot = new Vector2(0.5f, 0.5f);
+                rtImg.offsetMin = Vector2.zero;
+                rtImg.offsetMax = Vector2.zero;
+            }
+        }
+    }
+
+    // ====================== BOTONES / LAYOUT ======================
     void SplitFirstLine(string s, out string firstLine, out string rest)
     {
         if (string.IsNullOrEmpty(s)) { firstLine = ""; rest = ""; return; }
@@ -182,42 +278,6 @@ public class CustomModeStoryPanel : MonoBehaviour
         if (debugLogs) Debug.Log($"[Story] Layout centro->abajo: {spawnedButtons.Count} botones, width={width}, startOffset={firstButtonYOffset}, spacing={spacing}");
     }
 
-    void StyleButtonLabelText(Transform root, string text)
-    {
-        if (!root) return;
-
-        var tmps = root.GetComponentsInChildren<TextMeshProUGUI>(true);
-        foreach (var t in tmps)
-        {
-            t.enableAutoSizing = true;
-            t.fontSizeMin = 16;
-            t.fontSizeMax = 28;
-            t.alignment = buttonTextAlign;
-            t.text = text;
-            t.color = buttonTextColor;
-
-            Material mat = t.fontMaterial;
-            if (mat != null)
-            {
-                mat.SetFloat(TMPro.ShaderUtilities.ID_OutlineWidth, buttonOutlineWidth);
-                mat.SetColor(TMPro.ShaderUtilities.ID_OutlineColor, buttonOutlineColor);
-            }
-        }
-
-        var ugui = root.GetComponentsInChildren<Text>(true);
-        foreach (var u in ugui)
-        {
-            u.alignment = TextAnchor.MiddleCenter;
-            u.text = text;
-            u.color = buttonTextColor;
-
-            var shadow = u.gameObject.GetComponent<Shadow>();
-            if (!shadow) shadow = u.gameObject.AddComponent<Shadow>();
-            shadow.effectColor = Color.black;
-            shadow.effectDistance = new Vector2(1f, -1f);
-        }
-    }
-
     Button CreateRuntimeButton(string text, Transform parent)
     {
         var go = new GameObject("OptionButton", typeof(RectTransform), typeof(Image), typeof(Button));
@@ -256,6 +316,44 @@ public class CustomModeStoryPanel : MonoBehaviour
         return btn;
     }
 
+    // === Estilo para los textos de los botones ===
+    void StyleButtonLabelText(Transform root, string text)
+    {
+        if (!root) return;
+
+        var tmps = root.GetComponentsInChildren<TextMeshProUGUI>(true);
+        foreach (var t in tmps)
+        {
+            t.enableAutoSizing = true;
+            t.fontSizeMin = 16;
+            t.fontSizeMax = 28;
+            t.alignment = buttonTextAlign;
+            t.text = text;
+            t.color = buttonTextColor;
+
+            Material mat = t.fontMaterial;
+            if (mat != null)
+            {
+                mat.SetFloat(TMPro.ShaderUtilities.ID_OutlineWidth, buttonOutlineWidth);
+                mat.SetColor(TMPro.ShaderUtilities.ID_OutlineColor, buttonOutlineColor);
+            }
+        }
+
+        var ugui = root.GetComponentsInChildren<Text>(true);
+        foreach (var u in ugui)
+        {
+            u.alignment = TextAnchor.MiddleCenter;
+            u.text = text;
+            u.color = buttonTextColor;
+
+            var shadow = u.gameObject.GetComponent<Shadow>();
+            if (!shadow) shadow = u.gameObject.AddComponent<Shadow>();
+            shadow.effectColor = Color.black;
+            shadow.effectDistance = new Vector2(1f, -1f);
+        }
+    }
+
+    // ====================== ELECCIÓN ======================
     void OnChoose(CustomModeStoryNode.Option opt)
     {
         if (_locked) return;
@@ -279,12 +377,13 @@ public class CustomModeStoryPanel : MonoBehaviour
         accBatteryDrain += e.batteryDrain;
         accBatteryDensity += e.batteryDensity;
         accFragmentDensity += e.fragmentDensity;
-        accFloors += e.floorsDelta;
-        accMapSizePct += e.mapSizePercent; 
+
+        accFragments += e.fragmentsDelta;
+        accMapSizePct += e.mapSizePercent;
 
         if (e.torchesOnlyStartFew != TriBool.Unset) f_torchesFew = e.torchesOnlyStartFew;
         if (e.enemy2DrainsBattery != TriBool.Unset) f_enemy2Drain = e.enemy2DrainsBattery;
-        if (e.enemy3ResistsLight != TriBool.Unset) f_enemy3Resist = e.enemy3ResistsLight;
+        if (e.enemy3ResistsLight != TriBool.Unset) f_enemy3Resist = e.enemy3ResistsLight; // ← corregido
     }
 
     void FinishAndApply()
@@ -296,11 +395,10 @@ public class CustomModeStoryPanel : MonoBehaviour
         p.batteryDensityMul = Mathf.Clamp(1f + accBatteryDensity, mulMin, mulMax);
         p.fragmentDensityMul = Mathf.Clamp(1f + accFragmentDensity, mulMin, mulMax);
 
-        // Tamaño del mapa: 1 + porcentaje acumulado
         p.mapSizeMul = Mathf.Clamp(1f + accMapSizePct, mapMulMin, mapMulMax);
-        p.maxMapSize = 49; 
+        p.maxMapSize = 49;
 
-        p.targetFloors = Mathf.Clamp(3 + accFloors, floorsMin, floorsMax);
+        p.targetFloors = Mathf.Clamp(1 + accFragments, fragmentsMin, fragmentsMax);
 
         if (f_torchesFew != TriBool.Unset) p.torchesOnlyStartFew = (f_torchesFew == TriBool.True);
         if (f_enemy2Drain != TriBool.Unset) p.enemy2DrainsBattery = (f_enemy2Drain == TriBool.True);
@@ -316,7 +414,7 @@ public class CustomModeStoryPanel : MonoBehaviour
                 $"enemyStatMul={p.enemyStatMul:F2}, enemyDensityMul={p.enemyDensityMul:F2}, " +
                 $"batteryDrainMul={p.batteryDrainMul:F2}, batteryDensityMul={p.batteryDensityMul:F2}, " +
                 $"fragmentDensityMul={p.fragmentDensityMul:F2}, mapSizeMul={p.mapSizeMul:F2}, " +
-                $"maxMapSize={p.maxMapSize}, targetFloors={p.targetFloors}, " +
+                $"maxMapSize={p.maxMapSize}, targetFragments={p.targetFloors}, " +
                 $"flags: torchesFew={p.torchesOnlyStartFew}, e2Drain={p.enemy2DrainsBattery}, e3Resist={p.enemy3ResistsLight}");
         }
 
@@ -333,9 +431,10 @@ public class CustomModeStoryPanel : MonoBehaviour
 
     void ResetAcc()
     {
-        accEnemyStat = accEnemyDensity = accBatteryDrain = accBatteryDensity = accFragmentDensity = 0f;
-        accFloors = 0;
-        accMapSizePct = 0f; // ← NUEVO
+        accEnemyStat = accEnemyDensity = accBatteryDrain = accBatteryDensity = 0f;
+        accFragmentDensity = 0f;
+        accFragments = 0;
+        accMapSizePct = 0f;
         f_torchesFew = f_enemy2Drain = f_enemy3Resist = TriBool.Unset;
     }
 }

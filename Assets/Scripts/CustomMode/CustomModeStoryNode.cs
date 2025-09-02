@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using System.Collections.Generic;
+using UnityEngine;
 
 [CreateAssetMenu(menuName = "Game/Custom Mode Story/Node")]
 public class CustomModeStoryNode : ScriptableObject
@@ -7,6 +8,14 @@ public class CustomModeStoryNode : ScriptableObject
     [Tooltip("Texto mostrado en el panel. Se permite Rich Text de TMP.")]
     [TextArea(3, 12)]
     public string narrative;
+
+    [Header("Fondos visuales (por nodo)")]
+    [Tooltip("Compat: si llenas este campo, también se usará como primera capa.")]
+    public Sprite backgroundSprite; // opcional (legacy/compat)
+    [Tooltip("Lista de sprites a mostrar, en orden (0 = más atrás).")]
+    public List<Sprite> backgroundSprites = new List<Sprite>();
+    [Tooltip("Tinte aplicado a TODAS las capas de este nodo.")]
+    public Color bgTint = Color.white;
 
     [Header("Opciones")]
     [Tooltip("Lista de respuestas/ramas. Dejar vacío convierte este nodo en final (si no hay 'next').")]
@@ -27,12 +36,19 @@ public class CustomModeStoryNode : ScriptableObject
     }
 
 #if UNITY_EDITOR
-
     void OnValidate()
     {
         // Recortar narrativa
         if (!string.IsNullOrEmpty(narrative))
             narrative = narrative.Trim();
+
+        // Compat: si backgroundSprite está y la lista está vacía, lo agregamos como primera capa.
+        if (backgroundSprite && (backgroundSprites == null || backgroundSprites.Count == 0))
+        {
+            if (backgroundSprites == null) backgroundSprites = new List<Sprite>();
+            if (!backgroundSprites.Contains(backgroundSprite))
+                backgroundSprites.Insert(0, backgroundSprite);
+        }
 
         if (options == null) return;
 
@@ -46,7 +62,6 @@ public class CustomModeStoryNode : ScriptableObject
             if (!string.IsNullOrEmpty(opt.text))
                 opt.text = opt.text.Trim();
 
- 
             if (opt.next) anyNext = true;
 
             // Avisos comunes
@@ -58,16 +73,10 @@ public class CustomModeStoryNode : ScriptableObject
             {
                 Debug.LogWarning($"[StoryNode] En '{name}' la opción #{i} no tiene texto.", this);
             }
-            if (opt.next == null && (opt.effects == null || opt.effects.IsNeutral()))
-            {
-
-            }
         }
 
-        if (!anyNext && (options == null || options.Length == 0))
-        {
-
-        }
+        // nodo terminal sin opciones: válido
+        _ = anyNext;
     }
 #endif
 }
@@ -82,18 +91,17 @@ public class StoryEffects
     [Range(-1f, 1f)] public float batteryDensity;
     [Range(-1f, 1f)] public float fragmentDensity;
 
-    [Header("Pisos")]
-    [Tooltip("Delta sobre el valor base (3). Se clamp a los límites configurados en el Panel.")]
-    public int floorsDelta;
+    [Header("Fragmentos")]
+    [Tooltip("Delta sobre el valor base (1). Se clamp a los límites configurados en el Panel (1..9).")]
+    public int fragmentsDelta;
 
     [Header("Tamaño del mapa (% relativo)")]
-    [Range(-0.5f, 0.5f)] public float mapSizePercent; 
+    [Range(-0.5f, 0.5f)] public float mapSizePercent;
 
     [Header("Flags tri-estado (Unset = no cambia)")]
     public TriBool torchesOnlyStartFew;
     public TriBool enemy2DrainsBattery;
     public TriBool enemy3ResistsLight;
-
 
     public bool IsNeutral()
     {
@@ -102,8 +110,8 @@ public class StoryEffects
             && Mathf.Approximately(batteryDrain, 0f)
             && Mathf.Approximately(batteryDensity, 0f)
             && Mathf.Approximately(fragmentDensity, 0f)
-            && floorsDelta == 0
-            && Mathf.Approximately(mapSizePercent, 0f)          
+            && fragmentsDelta == 0
+            && Mathf.Approximately(mapSizePercent, 0f)
             && torchesOnlyStartFew == TriBool.Unset
             && enemy2DrainsBattery == TriBool.Unset
             && enemy3ResistsLight == TriBool.Unset;

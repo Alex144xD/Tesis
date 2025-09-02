@@ -19,6 +19,10 @@ MonoBehaviour:
     no se pueden deshacer. El barco ha zarpado y las olas sellar\xE1n tu destino.\n\nUn
     \xFAltimo silencio los envuelve, y la luz azul comienza a desvanecerse.\n\n\u2014Buena
     suerte, capit\xE1n\u2026"
+  backgroundSprite: {fileID: 21300000, guid: 99848f48da88cef4bbaa091cc8456a9f, type: 3}
+  backgroundSprites:
+  - {fileID: 21300000, guid: 99848f48da88cef4bbaa091cc8456a9f, type: 3}
+  bgTint: {r: 1, g: 1, b: 1, a: 1}
   options:
   - text: "\u201CAcepto la redenci\xF3n.\u201D"
     effects:
@@ -27,7 +31,7 @@ MonoBehaviour:
       batteryDrain: -0.08
       batteryDensity: 0.08
       fragmentDensity: 0
-      floorsDelta: -1
+      fragmentsDelta: 0
       mapSizePercent: -0.08
       torchesOnlyStartFew: 0
       enemy2DrainsBattery: 0
@@ -40,7 +44,7 @@ MonoBehaviour:
       batteryDrain: 0.08
       batteryDensity: -0.08
       fragmentDensity: 0.1
-      floorsDelta: 2
+      fragmentsDelta: 0
       mapSizePercent: 0.1
       torchesOnlyStartFew: 0
       enemy2DrainsBattery: 1

@@ -8,9 +8,6 @@ public class EnemyFSM : MonoBehaviour
     public enum EnemyState { Idle, Patrol, Chase, Attack, Flee }
     public enum EnemyKind { Basic, Heavy, Runner }
 
-    [System.Flags]
-    public enum ScareMask { None = 0, Green = 1, Red = 2, Blue = 4 }
-
     [Header("Tipo de enemigo")]
     public EnemyKind kind = EnemyKind.Basic;
 
@@ -18,7 +15,6 @@ public class EnemyFSM : MonoBehaviour
     public CharacterController controller;
     public Animator animator;
 
-    // ===================== Animación (crossfade por nombre) =====================
     [Header("Animación (crossfade por nombre)")]
     public bool useCrossfadeFallback = true;
     public bool logAnimDebug = false;
@@ -31,7 +27,6 @@ public class EnemyFSM : MonoBehaviour
     [SerializeField] string attackState = "root|Anim_monster_scavenger_attack";
     int _lastAnimHash = 0;
     int _targetAnimHash = 0;
-    // ===========================================================================
 
     [Header("Detección")]
     public float detectionRange = 6f;
@@ -75,32 +70,22 @@ public class EnemyFSM : MonoBehaviour
     [Header("Debug")]
     public bool drawPathGizmos = false;
     public Color pathColor = new Color(0.2f, 0.9f, 1f, 0.8f);
+    public bool debugScareLogs = false;
 
-    // ---------- Giro visual ----------
     [Header("Giro visual")]
-    [Tooltip("Si asignas el hijo visual (modelo), sólo gira ese. Si lo dejas vacío, gira el GameObject raíz.")]
     public Transform visualRoot;
-    [Tooltip("Offset en grados si tu modelo está volteado (ej. 180 si mira hacia atrás).")]
     public float visualYawOffset = 0f;
-    [Tooltip("Hacer que el enemigo mire hacia su dirección de movimiento real.")]
     public bool faceByVelocity = true;
-    [Tooltip("Velocidad mínima (m/s) para considerar que está moviéndose y girar al frente.")]
     public float faceVelThreshold = 0.05f;
 
-    // ---------- Audio: ÚNICO LOOP ----------
     [Header("Audio (único loop)")]
     public bool enableAudio = true;
     public AudioClip monsterLoop;
-    [Range(0f, 1f)] public float loopVolumeIdle = 0f;     // 0 = apagado en Idle
-    [Range(0f, 1f)] public float loopVolumeActive = 0.6f; // Walk/Run/Attack/Flee
+    [Range(0f, 1f)] public float loopVolumeIdle = 0f;
+    [Range(0f, 1f)] public float loopVolumeActive = 0.6f;
     public float loopPitch = 1.0f;
     public float pitchJitter = 0.03f;
     public float loopFade = 0.08f;
-    public bool spatial3D = true;
-    public float spatialBlend = 1f; // 1 = 3D, 0 = 2D
-    public float minDistance = 3f;
-    public float maxDistance = 25f;
-    public AudioRolloffMode rolloff = AudioRolloffMode.Linear;
 
     private AudioSource loopSrc;
     private Coroutine loopFadeCo;
@@ -136,85 +121,22 @@ public class EnemyFSM : MonoBehaviour
     private float lastHitTime = -999f;
     public float hitMemory = 0.15f;
 
-    // jitter por agente
     private int myId;
 
-    // ===================== LUZ / ESPANTO (exposición) =====================
-    [Header("Luz y Espanto")]
-    [Tooltip("Qué tipos de batería pueden espantar a este enemigo.")]
-    public ScareMask scareByBatteries = ScareMask.Green;
+    // ===== Huida por impacto de luz =====
+    [Header("Huida por impacto de luz")]
+    [Tooltip("Tiempo que se suprime el ataque tras recibir luz.")]
+    public float suppressAttackSeconds = 1.0f;
+    [Tooltip("Duración del desvío si no entra en Flee.")]
+    public float deflectDuration = 0.8f;
+    [Tooltip("Distancia del punto de huida inmediato (opuesto a la luz).")]
+    public float immediateRetreatDistance = 4.0f;
+    [Tooltip("Knockback inicial al espantarse.")]
+    public float scareKnockback = 1.2f;
 
-    [Tooltip("Umbral base de exposición para espantar.")]
-    public float requiredExposure = 1.0f;
-
-    [Tooltip("Multiplicador de umbral cuando el modo es LOW (si este enemigo acepta LOW).")]
-    public float requiredExposureLowMultiplier = 1.4f;
-
-    [Tooltip("Exposición por segundo en HIGH (si este enemigo acepta HIGH).")]
-    public float exposurePerSecondHigh = 1.0f;
-
-    [Tooltip("Exposición por segundo en LOW (si este enemigo acepta LOW).")]
-    public float exposurePerSecondLow = 0.6f;
-
-    [Tooltip("Cuánto decae la exposición por segundo cuando deja de recibir luz.")]
-    public float exposureDecayPerSecond = 0.5f;
-
-    [Tooltip("Tiempo de enfriamiento tras espantarse.")]
-    public float scareCooldown = 3.0f;
-
-    [Tooltip("Ventana de inmunidad tras espantarse.")]
-    public float postScareImmunity = 1.0f;
-
-    [Header("Bonos y multiplicadores")]
-    [Range(0f, 1f)] public float centerBonusFactor = 0.25f;
-    public float greenBatteryMult = 1.15f;
-    public float redBatteryMult = 1.25f;
-    public float blueBatteryMult = 1.10f;
-
-    [Header("LOW aplica slow si no espanta")]
-    public bool lowModeAppliesSlow = true;
-    [Range(0.2f, 1f)] public float lowSlowFactor = 0.75f;
-    public float lowSlowDuration = 0.3f;
-
-    [Header("Balance automático por tipo")]
-    public bool useKindAutoStats = true;
-    [Range(0.4f, 1.25f)] public float globalSpeedScale = 0.80f;
-    public float basicPatrol = 1.6f, basicChase = 2.4f, basicDamage = 10f;
-    public float heavyPatrol = 1.1f, heavyChase = 1.6f, heavyDamage = 14f;
-    public float runnerPatrol = 2.6f, runnerChase = 3.8f, runnerDamage = 6f;
-
-    // runtime exposición/slow
-    private float exposure = 0f;
+    private float attackSuppressedUntil = -999f;
+    private float deflectUntil = -999f;
     private float scareLockUntil = -999f;
-    private float slowTimer = 0f;
-    private float lastLightHitTime = -999f;
-
- 
-    private bool IsModeAllowed(PlayerLightController.FlashlightUIMode mode)
-    {
-        if (mode == PlayerLightController.FlashlightUIMode.Off) return false;
-
-        switch (kind)
-        {
-            case EnemyKind.Basic:
-                return mode == PlayerLightController.FlashlightUIMode.Low ||
-                       mode == PlayerLightController.FlashlightUIMode.High;
-            case EnemyKind.Heavy:
-                return mode == PlayerLightController.FlashlightUIMode.High;
-            case EnemyKind.Runner:
-                return mode == PlayerLightController.FlashlightUIMode.Low;
-        }
-        return false;
-    }
-
-    private bool IsBatteryAllowed(BatteryType b)
-    {
-        return (b == BatteryType.Green && (scareByBatteries & ScareMask.Green) != 0) ||
-               (b == BatteryType.Red && (scareByBatteries & ScareMask.Red) != 0) ||
-               (b == BatteryType.Blue && (scareByBatteries & ScareMask.Blue) != 0);
-    }
-
-    // ===================== Unity lifecycle =====================
 
     void Awake()
     {
@@ -237,10 +159,10 @@ public class EnemyFSM : MonoBehaviour
             loopSrc = gameObject.AddComponent<AudioSource>();
             loopSrc.playOnAwake = false;
             loopSrc.loop = true;
-            loopSrc.spatialBlend = spatial3D ? spatialBlend : 0f;
-            loopSrc.minDistance = minDistance;
-            loopSrc.maxDistance = maxDistance;
-            loopSrc.rolloffMode = rolloff;
+            loopSrc.spatialBlend = 1f;
+            loopSrc.minDistance = 3f;
+            loopSrc.maxDistance = 25f;
+            loopSrc.rolloffMode = AudioRolloffMode.Linear;
             loopSrc.dopplerLevel = 0f;
             loopSrc.volume = 0f;
             if (monsterLoop) loopSrc.clip = monsterLoop;
@@ -273,33 +195,6 @@ public class EnemyFSM : MonoBehaviour
         lastSeenPos = transform.position;
         lastSeenTimer = 0f;
 
-        if (useKindAutoStats)
-        {
-            switch (kind)
-            {
-                case EnemyKind.Basic:
-                    patrolSpeed = basicPatrol;
-                    chaseSpeed = basicChase;
-                    attackDamage = basicDamage;
-                    if (scareByBatteries == ScareMask.None) scareByBatteries = ScareMask.Green | ScareMask.Red;
-                    break;
-                case EnemyKind.Heavy:
-                    patrolSpeed = heavyPatrol;
-                    chaseSpeed = heavyChase;
-                    attackDamage = heavyDamage;
-                    if (scareByBatteries == ScareMask.None) scareByBatteries = ScareMask.Red;
-                    break;
-                case EnemyKind.Runner:
-                    patrolSpeed = runnerPatrol;
-                    chaseSpeed = runnerChase;
-                    attackDamage = runnerDamage;
-                    if (scareByBatteries == ScareMask.None) scareByBatteries = ScareMask.Blue;
-                    break;
-            }
-            patrolSpeed *= globalSpeedScale;
-            chaseSpeed *= globalSpeedScale;
-        }
-
         UpdateLoopByLogical("Idle");
     }
 
@@ -320,11 +215,6 @@ public class EnemyFSM : MonoBehaviour
 
     void Update()
     {
-        if (Time.time - lastLightHitTime > 0.05f)
-            DecayExposure(Time.deltaTime);
-
-        if (slowTimer > 0f) slowTimer -= Time.deltaTime;
-
         switch (currentState)
         {
             case EnemyState.Idle: StateIdle(); break;
@@ -360,7 +250,7 @@ public class EnemyFSM : MonoBehaviour
     void StatePatrol()
     {
         SetAnimation("Walk");
-        MoveAlongPath(patrolSpeed * GetCurrentSpeedMultiplier());
+        MoveAlongPath(patrolSpeed);
 
         if (UpdatePlayerSensing())
         {
@@ -380,37 +270,45 @@ public class EnemyFSM : MonoBehaviour
     {
         SetAnimation("Run");
 
-        bool seesNow = UpdatePlayerSensing();
-        Vector3 target;
-
-        if (seesNow && player)
-            target = player.position;
-        else if (lastSeenTimer > 0f)
+        // Si está desviado por luz, sigue el punto de escape inmediato
+        if (Time.time < deflectUntil)
         {
-            target = lastSeenPos;
-            lastSeenTimer -= Time.deltaTime;
+            // path ya recalculado en OnLightImpact
         }
         else
         {
-            currentState = EnemyState.Patrol;
-            GoToRandomPatrolPoint();
-            return;
+            bool seesNow = UpdatePlayerSensing();
+            Vector3 target;
+
+            if (seesNow && player)
+                target = player.position;
+            else if (lastSeenTimer > 0f)
+            {
+                target = lastSeenPos;
+                lastSeenTimer -= Time.deltaTime;
+            }
+            else
+            {
+                currentState = EnemyState.Patrol;
+                GoToRandomPatrolPoint();
+                return;
+            }
+
+            bool needRepath = PathfindingAStar.Instance.ShouldRepathCells(lastChaseTargetWorld, target, recalcPathCellThreshold);
+            recalcTimer += Time.deltaTime;
+
+            if (ReachedPathEnd()) recalcTimer = recalculatePathInterval;
+            if (needRepath || recalcTimer >= recalculatePathInterval)
+            {
+                RecalcPathTo(target);
+                lastChaseTargetWorld = target;
+            }
         }
 
-        bool needRepath = PathfindingAStar.Instance.ShouldRepathCells(lastChaseTargetWorld, target, recalcPathCellThreshold);
-        recalcTimer += Time.deltaTime;
-
-        if (ReachedPathEnd()) recalcTimer = recalculatePathInterval;
-        if (needRepath || recalcTimer >= recalculatePathInterval)
-        {
-            RecalcPathTo(target);
-            lastChaseTargetWorld = target;
-        }
-
-        MoveAlongPath(chaseSpeed * GetCurrentSpeedMultiplier());
+        MoveAlongPath(chaseSpeed);
         FaceTowardsPathOrPlayer();
 
-        if (player && seesNow && Vector3.Distance(transform.position, player.position) <= attackRange)
+        if (player && Vector3.Distance(transform.position, player.position) <= attackRange)
             currentState = EnemyState.Attack;
     }
 
@@ -421,6 +319,20 @@ public class EnemyFSM : MonoBehaviour
         if (!player)
         {
             currentState = EnemyState.Patrol;
+            return;
+        }
+
+        // Si el ataque está suprimido por luz, retrocede y NO hace daño
+        if (Time.time < attackSuppressedUntil)
+        {
+            Vector3 away = (transform.position - player.position);
+            away.y = 0f;
+            if (away.sqrMagnitude > 0.0001f)
+            {
+                away = away.normalized * (chaseSpeed * 0.9f);
+                SlideMove(away);
+            }
+            ApplyGravity();
             return;
         }
 
@@ -439,12 +351,13 @@ public class EnemyFSM : MonoBehaviour
             dir += ComputeSeparationLimited() * separationForce;
             dir.y = 0f;
             dir = dir.normalized;
-            SlideMove(dir * (chaseSpeed * 0.5f * GetCurrentSpeedMultiplier()));
+            SlideMove(dir * (chaseSpeed * 0.5f));
         }
 
         FaceTarget(player.position, 1f);
 
-        if (Time.time >= lastAttackTime + attackCooldown)
+        // Solo daña si NO está suprimido
+        if (Time.time >= lastAttackTime + attackCooldown && Time.time >= attackSuppressedUntil)
         {
             var hp = player.GetComponent<PlayerHealth>();
             if (hp != null) hp.TakeDamage(attackDamage);
@@ -460,7 +373,7 @@ public class EnemyFSM : MonoBehaviour
     void StateFlee()
     {
         SetAnimation("Run");
-        MoveAlongPath(chaseSpeed * 1.3f * GetCurrentSpeedMultiplier());
+        MoveAlongPath(chaseSpeed * 1.2f);
         FaceTowardsPathOrPlayer();
 
         if (!player) { ApplyGravity(); return; }
@@ -493,7 +406,7 @@ public class EnemyFSM : MonoBehaviour
         Vector3 to = targetPos - transform.position;
         to.y = 0f;
 
-        float reachDist = MultiFloorDynamicMapManager.Instance.cellSize * 0.45f;
+        float reachDist = MultiFloorDynamicMapManager.Instance ? MultiFloorDynamicMapManager.Instance.cellSize * 0.45f : 0.45f;
         if (to.sqrMagnitude <= reachDist * reachDist)
         {
             pathIndex++;
@@ -510,7 +423,6 @@ public class EnemyFSM : MonoBehaviour
         dir = dir.normalized;
 
         SlideMove(dir * speed);
-
         FaceDirection(dir, 1f);
 
         if (map != null)
@@ -522,7 +434,7 @@ public class EnemyFSM : MonoBehaviour
         if ((Time.time - lastHitTime) >= hitMemory && to.magnitude < 0.05f)
         {
             Vector3 nudge = ComputeCornerNudge(
-                probe: MultiFloorDynamicMapManager.Instance.cellSize * nudgeProbeFactor,
+                probe: (MultiFloorDynamicMapManager.Instance ? MultiFloorDynamicMapManager.Instance.cellSize : 1f) * nudgeProbeFactor,
                 push: nudgePush
             );
             if (nudge.sqrMagnitude > 0.0001f)
@@ -549,7 +461,7 @@ public class EnemyFSM : MonoBehaviour
 
     void GoToRandomPatrolPoint()
     {
-        var free = MultiFloorDynamicMapManager.Instance.GetFreeCells(floorIndex);
+        var free = MultiFloorDynamicMapManager.Instance ? MultiFloorDynamicMapManager.Instance.GetFreeCells(floorIndex) : new List<Vector2Int>();
         if (free.Count == 0) return;
 
         free.RemoveAll(c => occupiedPatrolCells.Contains(new Vector3Int(c.x, c.y, floorIndex)));
@@ -589,13 +501,9 @@ public class EnemyFSM : MonoBehaviour
     void ApplyGravity()
     {
         if (controller.isGrounded)
-        {
-            verticalVel = -groundSnap; // pegado al suelo
-        }
+            verticalVel = -groundSnap;
         else
-        {
             verticalVel -= gravity * Time.deltaTime;
-        }
 
         controller.Move(new Vector3(0f, verticalVel, 0f) * Time.deltaTime);
     }
@@ -695,10 +603,9 @@ public class EnemyFSM : MonoBehaviour
 
         RecalcPathTo(target);
     }
-    // Intenta recuperarse cuando avanza muy poco durante un tiempo
+
     void RecoverFromStuck()
     {
-        // 1) Si estamos en CHASE y tenemos (LOS o memoria de última vista), intenta recalcular hacia el jugador/última vista
         if (currentState == EnemyState.Chase && (PlayerHasLOS() || lastSeenTimer > 0f))
         {
             Vector3 tgt = PlayerHasLOS() ? player.position : lastSeenPos;
@@ -710,7 +617,6 @@ public class EnemyFSM : MonoBehaviour
                 return;
             }
         }
-        // 2) Si estamos en PATROL o FLEE y ya teníamos un path, intenta recalcular al siguiente punto
         else if ((currentState == EnemyState.Patrol || currentState == EnemyState.Flee) &&
                  currentPath != null && pathIndex < currentPath.Count)
         {
@@ -724,7 +630,6 @@ public class EnemyFSM : MonoBehaviour
             }
         }
 
-        // 3) Busca un destino de merodeo (wander) relativamente libre para moverse
         Vector3 wander = PathfindingAStar.Instance.FindWanderTarget(
             floorIndex, transform.position, player, minDistCells: 4f
         );
@@ -736,7 +641,6 @@ public class EnemyFSM : MonoBehaviour
             return;
         }
 
-        // 4) Como último recurso, “centra” al enemigo a la celda actual para destrabarlo suavemente
         if (map != null)
         {
             var c = map.WorldToCell(transform.position);
@@ -752,129 +656,114 @@ public class EnemyFSM : MonoBehaviour
             }
         }
 
-        // Reintenta pronto
         recalcTimer = recalculatePathInterval;
     }
 
-
-    // ====== LEGACY (compat) ======
-    public void OnFlashlightHit()
+    // ======= NUEVO: impacto directo de luz =======
+    public void OnLightImpact(Vector3 lightOrigin, Vector3 lightForward, BatteryType battery, PlayerLightController.FlashlightUIMode mode)
     {
-        OnFlashlightHitDetailed(BatteryType.Green, PlayerLightController.FlashlightUIMode.High, Time.deltaTime, 0.6f);
-    }
-    public void OnFlashlightHitByBattery(BatteryType type)
-    {
-        OnFlashlightHitDetailed(type, PlayerLightController.FlashlightUIMode.High, Time.deltaTime, 0.6f);
-    }
+        // 1) Suprimir ataque
+        attackSuppressedUntil = Time.time + Mathf.Max(0.05f, suppressAttackSeconds);
 
-    // ====== Handler detallado ======
-    public void OnFlashlightHitDetailed(BatteryType battery, PlayerLightController.FlashlightUIMode mode, float dt, float intensity01)
-    {
-        if (Time.time < scareLockUntil) return;
+        // 2) Calcular dirección de huida opuesta a la luz
+        Vector3 away = (transform.position - lightOrigin);
+        away.y = 0f;
+        if (away.sqrMagnitude < 0.0001f) away = -lightForward; // fallback: opuesto al forward de la luz
+        away = away.normalized;
 
-        lastLightHitTime = Time.time;
-
-        if (!IsBatteryAllowed(battery))
+        Vector3 immediateTarget = transform.position + away * Mathf.Max(1f, immediateRetreatDistance);
+        if (map)
         {
-            if (mode == PlayerLightController.FlashlightUIMode.Low && lowModeAppliesSlow)
-                ApplyLowSlow(dt);
-            return;
-        }
-        if (!IsModeAllowed(mode))
-        {
-            if (mode == PlayerLightController.FlashlightUIMode.Low && lowModeAppliesSlow)
-                ApplyLowSlow(dt);
-            return;
+            var c = map.WorldToCell(immediateTarget);
+            immediateTarget = map.CellCenterToWorld(c, floorIndex);
         }
 
-        float rate = (mode == PlayerLightController.FlashlightUIMode.High) ? exposurePerSecondHigh : exposurePerSecondLow;
-        float req = requiredExposure;
+        // Recalcular un path corto para escapar YA
+        RecalcPathTo(immediateTarget);
+        deflectUntil = Time.time + Mathf.Max(0.1f, deflectDuration);
 
-        if (mode == PlayerLightController.FlashlightUIMode.Low)
-            req *= requiredExposureLowMultiplier; // LOW tarda más, si aplica
-
-        float centerBonus = 1f + (centerBonusFactor * Mathf.Clamp01(intensity01));
-
-        float batteryMult = 1f;
-        switch (battery)
+        // 3) Si coincide la combinación, pasar a Flee con destino lejano
+        if (ShouldScareNow(battery, mode) && Time.time >= scareLockUntil)
         {
-            case BatteryType.Green: batteryMult = greenBatteryMult; break;
-            case BatteryType.Red: batteryMult = redBatteryMult; break;
-            case BatteryType.Blue: batteryMult = blueBatteryMult; break;
+            // Knockback suave
+            if (scareKnockback > 0f)
+                controller.Move(away * scareKnockback * Time.deltaTime);
+
+            if (currentState != EnemyState.Flee)
+            {
+                ClearReservedCell();
+                currentState = EnemyState.Flee;
+                ChooseFleeDestination();
+            }
+
+            scareLockUntil = Time.time + 1.0f; // evita re-espantos inmediatos
+            lastAttackTime = Time.time + Mathf.Max(0.2f, attackCooldown * 0.5f);
+
+            if (debugScareLogs) Debug.Log($"[{name}] FLEE by light (battery={battery}, mode={mode})");
         }
-
-        exposure += rate * dt * batteryMult * centerBonus;
-
-        if (exposure >= req)
+        else
         {
-            Scare();
-            exposure = 0f;
-            LockScare();
+            // Si estaba atacando, forzar transición fuera del ataque
+            if (currentState == EnemyState.Attack)
+                currentState = EnemyState.Chase;
         }
     }
 
-    private void DecayExposure(float dt)
+    private bool ShouldScareNow(BatteryType battery, PlayerLightController.FlashlightUIMode mode)
     {
-        if (exposure <= 0f) return;
-        exposure = Mathf.Max(0f, exposure - (exposureDecayPerSecond * dt));
-    }
-
-    private void ApplyLowSlow(float dt)
-    {
-        slowTimer = Mathf.Max(slowTimer, lowSlowDuration);
-    }
-
-    private float GetCurrentSpeedMultiplier()
-    {
-        return (slowTimer > 0f) ? lowSlowFactor : 1f;
-    }
-
-    private void LockScare()
-    {
-        scareLockUntil = Time.time + Mathf.Max(scareCooldown, postScareImmunity);
-    }
-
-    private void Scare()
-    {
-        if (currentState != EnemyState.Flee)
+        switch (kind)
         {
-            ClearReservedCell();
-            currentState = EnemyState.Flee;
-            ChooseFleeDestination();
+            case EnemyKind.Basic: // Enemigo 1: verde con LOW o HIGH
+                return battery == BatteryType.Green &&
+                       (mode == PlayerLightController.FlashlightUIMode.Low ||
+                        mode == PlayerLightController.FlashlightUIMode.High);
+
+            case EnemyKind.Heavy: // Enemigo 2: rojo solo HIGH
+                return battery == BatteryType.Red &&
+                       mode == PlayerLightController.FlashlightUIMode.High;
+
+            case EnemyKind.Runner: // Enemigo 3: azul solo LOW
+                return battery == BatteryType.Blue &&
+                       mode == PlayerLightController.FlashlightUIMode.Low;
         }
+        return false;
     }
 
     private void ChooseFleeDestination()
     {
+        if (!player || MultiFloorDynamicMapManager.Instance == null) return;
+
         var free = MultiFloorDynamicMapManager.Instance.GetFreeCells(floorIndex);
-        if (free.Count == 0 || player == null) return;
+        if (free.Count == 0) return;
 
         Vector2Int farthest = free[0];
-        float maxDist = -1f;
+        float maxScore = float.NegativeInfinity;
 
         foreach (var cell in free)
         {
-            Vector3 cellPos = MultiFloorDynamicMapManager.Instance.CellCenterToWorld(cell, floorIndex);
-            float dist = Vector3.Distance(cellPos, player.position);
-            if (dist > maxDist) { maxDist = dist; farthest = cell; }
+            Vector3 pos = MultiFloorDynamicMapManager.Instance.CellCenterToWorld(cell, floorIndex);
+            // Puntúa en contra del jugador (más lejos, mejor)
+            float d = Vector3.Distance(pos, player.position);
+            // Bonus si pos está aproximadamente en la dirección opuesta al jugador
+            Vector3 away = (pos - transform.position).normalized;
+            Vector3 toPlayer = (player.position - transform.position).normalized;
+            float oppositeBonus = Vector3.Dot(away, -toPlayer); // 1 si exactamente opuesto
+            float score = d + oppositeBonus * 3f;
+            if (score > maxScore) { maxScore = score; farthest = cell; }
         }
 
         Vector3 fleePos = MultiFloorDynamicMapManager.Instance.CellCenterToWorld(farthest, floorIndex);
         RecalcPathTo(fleePos);
     }
 
-    // ================== SENSING ==================
+    // ================== SENSING / helpers (igual que antes) ==================
 
     bool UpdatePlayerSensing()
     {
         if (!player) return false;
-
         float dist = Vector3.Distance(transform.position, player.position);
         if (dist > detectionRange) return false;
-
-        if (requireLineOfSightToChase && !HasLineOfSightTo(player.position))
-            return false;
-
+        if (requireLineOfSightToChase && !HasLineOfSightTo(player.position)) return false;
         lastSeenPos = player.position;
         lastSeenTimer = lastSeenMemorySeconds;
         return true;
@@ -894,7 +783,6 @@ public class EnemyFSM : MonoBehaviour
         Vector3 target = worldTarget + Vector3.up * 0.6f;
         Vector3 dir = (target - origin).normalized;
         float dist = Vector3.Distance(origin, target);
-
         return !Physics.Raycast(origin, dir, dist, losObstacles);
     }
 
@@ -911,7 +799,6 @@ public class EnemyFSM : MonoBehaviour
         FaceTargetIf(player, 1f);
     }
 
-    // ---------- Helpers de mirada/rotación ----------
     void FaceTowardsPathOrPlayer()
     {
         Vector3? look = null;
@@ -919,7 +806,6 @@ public class EnemyFSM : MonoBehaviour
             look = currentPath[pathIndex];
         else if (player)
             look = (PlayerHasLOS() ? player.position : (lastSeenTimer > 0f ? lastSeenPos : transform.position));
-
         if (look.HasValue) FaceTarget(look.Value, 1f);
     }
 
@@ -958,7 +844,6 @@ public class EnemyFSM : MonoBehaviour
         else
             transform.rotation = Quaternion.RotateTowards(transform.rotation, look, deg);
     }
-    // -----------------------------------------------------------
 
     // ================== AUDIO / ANIM ==================
     void SetAnimation(string state)
@@ -1008,7 +893,7 @@ public class EnemyFSM : MonoBehaviour
         if (loopSrc.clip != monsterLoop)
         {
             loopSrc.clip = monsterLoop;
-            loopSrc.pitch = Mathf.Clamp(1f + Random.Range(-pitchJitter, pitchJitter), 0.1f, 3f) * loopPitch;
+            loopSrc.pitch = Mathf.Clamp(1f + Random.Range(-pitchJitter, pitchJitter), 0.1f, 3f);
             loopSrc.Play();
         }
 

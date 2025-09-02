@@ -790,6 +790,7 @@ MonoBehaviour:
   onMapChangedMinInterval: 0.15
   drawPathGizmos: 1
   pathColor: {r: 0.2, g: 0.9, b: 1, a: 0.8}
+  debugScareLogs: 1
   visualRoot: {fileID: 0}
   visualYawOffset: 0
   faceByVelocity: 1
@@ -801,43 +802,12 @@ MonoBehaviour:
   loopPitch: 1
   pitchJitter: 0.03
   loopFade: 0.08
-  spatial3D: 1
-  spatialBlend: 1
-  minDistance: 3
-  maxDistance: 25
-  rolloff: 1
   floorIndex: 0
   hitMemory: 0.15
-  scareByBatteries: 2
-  requireHighModeForScare: 0
-  lowModeCanScare: 1
-  requiredExposure: 1
-  requiredExposureLowMultiplier: 2
-  exposurePerSecondHigh: 1
-  exposurePerSecondLow: 0.5
-  exposureDecayPerSecond: 0.7
-  scareCooldown: 3
-  postScareImmunity: 1
-  lowModeAppliesSlow: 1
-  lowSlowFactor: 0.75
-  lowSlowDuration: 0.3
-  centerBonusFactor: 0.25
-  greenBatteryMult: 1.15
-  redBatteryMult: 1.25
-  blueBatteryMult: 1.1
-  useKindAutoStats: 1
-  globalSpeedScale: 0.8
-  basicPatrol: 1.6
-  basicChase: 2.4
-  basicDamage: 10
-  heavyPatrol: 1.1
-  heavyChase: 1.6
-  heavyDamage: 14
-  runnerPatrol: 2.6
-  runnerChase: 3.8
-  runnerDamage: 6
-  basicOnlyLowScares: 1
-  basicLowRequiredMultiplier: 2.8
+  suppressAttackSeconds: 1
+  deflectDuration: 0.8
+  immediateRetreatDistance: 4
+  scareKnockback: 1.2
 --- !u!143 &4429191810629067065
 CharacterController:
   m_ObjectHideFlags: 0

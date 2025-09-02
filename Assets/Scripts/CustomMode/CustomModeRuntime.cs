@@ -8,24 +8,28 @@ public class CustomModeRuntime : MonoBehaviour
 
     public CustomModeProfile ActiveProfile { get; private set; }
 
-
     bool _customModeStarted;
 
-
+    // ===== Caches de valores base para restaurar/usar como referencia =====
     struct MapBase
     {
-        public float enemyDensity, batteryDensity, fragmentDensity;
-        public int torchesMinPerFloor, torchesMaxPerFloor, floors;
+        public float enemyDensity, batteryDensity;
+        public int decorativeTorchesNearPath;
+        public int fragmentMinRing, fragmentMaxRing;
+        public int width, height;
         public bool has;
     }
+
     struct EnemyBase
     {
         public float patrolSpeed, chaseSpeed, attackDamage;
         public bool has;
     }
+
+    // Con el sistema nuevo NO existe drainRate. Cacheamos baseDrainPercentPerSecond.
     struct LightBase
     {
-        public float drainRate;
+        public float baseDrainPercentPerSecond;
         public bool has;
     }
 
@@ -47,13 +51,14 @@ public class CustomModeRuntime : MonoBehaviour
         SceneManager.sceneLoaded -= OnSceneLoaded_Reapply;
     }
 
+    // Activa un perfil y lo aplica sobre la escena actual
     public void SetProfile(CustomModeProfile profile)
     {
         ActiveProfile = profile;
         if (!ActiveProfile) return;
 
-        ClearCaches(); 
-        _customModeStarted = false; 
+        ClearCaches();
+        _customModeStarted = false;
 
         ApplyToCurrentScene();
         Debug.Log("[CustomMode] Perfil activo aplicado en la escena actual.");
@@ -89,6 +94,7 @@ public class CustomModeRuntime : MonoBehaviour
         Debug.Log($"[CustomMode] Aplicación -> maps:{maps.Length}, enemies:{enemies.Length}, lights:{lights.Length}");
     }
 
+    // ================== MAP ==================
     public void ApplyToMap(MultiFloorDynamicMapManager map)
     {
         if (!ActiveProfile || !map) return;
@@ -100,36 +106,44 @@ public class CustomModeRuntime : MonoBehaviour
             {
                 enemyDensity = map.enemyDensity,
                 batteryDensity = map.batteryDensity,
-                fragmentDensity = map.fragmentDensity,
-                torchesMinPerFloor = map.torchesMinPerFloor,
-                torchesMaxPerFloor = map.torchesMaxPerFloor,
-                floors = map.floors,
+                decorativeTorchesNearPath = map.decorativeTorchesNearPath,
+                fragmentMinRing = map.fragmentMinRing,
+                fragmentMaxRing = map.fragmentMaxRing,
+                width = map.width,
+                height = map.height,
                 has = true
             };
             mapBase[id] = b;
         }
 
-        map.enemyDensity = b.enemyDensity * ActiveProfile.enemyDensityMul;
-        map.batteryDensity = b.batteryDensity * ActiveProfile.batteryDensityMul;
-        map.fragmentDensity = b.fragmentDensity * ActiveProfile.fragmentDensityMul;
+        // 1) Densidades
+        float enemyD = b.enemyDensity * ActiveProfile.enemyDensityMul;
+        float battD = b.batteryDensity * ActiveProfile.batteryDensityMul;
 
-        int min = b.torchesMinPerFloor, max = b.torchesMaxPerFloor;
+        int ringMin = b.fragmentMinRing;
+        int ringMax = b.fragmentMaxRing;
+
+        map.SetGenerationTuning(enemyD, battD, ringMin, ringMax);
+
+        // 2) Antorchas decorativas
         if (ActiveProfile.torchesOnlyStartFew)
-        {
-            min = Mathf.Max(0, min - 1);
-            max = Mathf.Max(min, max - 1);
-        }
-        map.torchesMinPerFloor = min;
-        map.torchesMaxPerFloor = max;
+            map.decorativeTorchesNearPath = Mathf.Max(0, b.decorativeTorchesNearPath - 1);
+        else
+            map.decorativeTorchesNearPath = b.decorativeTorchesNearPath;
 
+        // 4) "targetFloors" del perfil => ahora es "targetFragments" (compat)
+        int targetFragments = Mathf.Max(1, ActiveProfile.targetFloors);
+        map.SetTargetFragments(targetFragments);
 
-        map.floors = Mathf.Clamp(ActiveProfile.targetFloors, 1, 9);
-
-
+        // 5) Inventory: usa fragments objetivo
         var inv = FindObjectOfType<PlayerInventory>(true);
-        if (inv) inv.OverrideFragmentsToWin(map.floors);
+        if (inv)
+        {
+            inv.OverrideFragmentsToWin(targetFragments);
+        }
     }
 
+    // ================== ENEMY ==================
     public void ApplyToEnemy(EnemyFSM enemy)
     {
         if (!ActiveProfile || !enemy) return;
@@ -158,6 +172,7 @@ public class CustomModeRuntime : MonoBehaviour
             resist.SetResistsLight(ActiveProfile.enemy3ResistsLight);
     }
 
+    // ================== FLASHLIGHT ==================
     public void ApplyToFlashlight(PlayerLightController lightCtrl)
     {
         if (!ActiveProfile || !lightCtrl) return;
@@ -165,11 +180,17 @@ public class CustomModeRuntime : MonoBehaviour
         int id = lightCtrl.GetInstanceID();
         if (!lightBase.TryGetValue(id, out var b) || !b.has)
         {
-            b = new LightBase { drainRate = lightCtrl.drainRate, has = true };
+            b = new LightBase
+            {
+                baseDrainPercentPerSecond = lightCtrl.baseDrainPercentPerSecond,
+                has = true
+            };
             lightBase[id] = b;
         }
 
-        lightCtrl.drainRate = b.drainRate * ActiveProfile.batteryDrainMul;
+        // Antes: lightCtrl.drainRate *= batteryDrainMul
+        // Ahora: escalamos el % base por segundo (mantiene el mismo concepto)
+        lightCtrl.baseDrainPercentPerSecond = b.baseDrainPercentPerSecond * ActiveProfile.batteryDrainMul;
     }
 
     public void ClearCaches()
@@ -180,6 +201,7 @@ public class CustomModeRuntime : MonoBehaviour
     }
 }
 
+// Interfaces existentes
 public interface IEnemyBatteryDrainer
 {
     void SetDrainsBattery(bool value);

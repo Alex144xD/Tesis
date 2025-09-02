@@ -7,14 +7,14 @@ public class PlayerInventory : MonoBehaviour
     [Header("Progreso del jugador")]
     public int soulFragmentsCollected = 0;
 
-    [Tooltip("Se actualiza automáticamente desde el MapManager. Solo informativo.")]
+    [Tooltip("Se mantiene por compatibilidad. Informativo.")]
     public int totalLevels;
 
     [Header("Eventos")]
-    public UnityEvent<int, int> onFragmentCollected; 
+    public UnityEvent<int, int> onFragmentCollected; // (current, required)
 
     [Header("Baterías")]
-    public PlayerBatterySystem batterySystem; 
+    public PlayerBatterySystem batterySystem;
 
     [Tooltip("Guardar cargas de baterías y fragmentos en PlayerPrefs")]
     public bool usePersistence = true;
@@ -22,7 +22,7 @@ public class PlayerInventory : MonoBehaviour
     [Tooltip("Si está activo, al iniciar se limpia el conteo de fragmentos guardado para evitar estados viejos.")]
     public bool resetFragmentsOnNewRun = true;
 
-    [System.Serializable] public class BatteryChangedEvent : UnityEvent<BatteryType, float, float> { } 
+    [System.Serializable] public class BatteryChangedEvent : UnityEvent<BatteryType, float, float> { }
     public BatteryChangedEvent onBatteryChanged;
 
     private GameManager gameManager;
@@ -30,9 +30,8 @@ public class PlayerInventory : MonoBehaviour
     private FragmentHUD fragmentHUD;
 
     // --- Reglas de victoria ---
-    [Tooltip("Fragmentos requeridos para ganar. Se deriva de floors salvo que haya override.")]
+    [Tooltip("Fragmentos requeridos para ganar. Si el mapa usa modo secuencial, se sincroniza con targetFragments.")]
     [SerializeField] private int requiredFragmentsToWin = 1;
-
     private bool fragmentsOverrideActive = false;
 
     const string KEY_FRAGMENTS = "INV_Fragments";
@@ -64,11 +63,11 @@ public class PlayerInventory : MonoBehaviour
 
     private void Start()
     {
-
+        // Informativo
         if (mapManager != null)
-            totalLevels = mapManager.floors;
-
-        totalLevels = Mathf.Max(totalLevels, 1);
+            totalLevels = Mathf.Max(mapManager.floors, 1);
+        else
+            totalLevels = Mathf.Max(totalLevels, 1);
 
         // Estado persistente
         if (usePersistence)
@@ -89,16 +88,16 @@ public class PlayerInventory : MonoBehaviour
             ResetInventory();
         }
 
-    
+        // Sincronizar requisito con el sistema activo
         if (!fragmentsOverrideActive)
             RecomputeRequiredFragmentsToWin();
 
         StartCoroutine(DeferredSyncRequiredFragments());
 
- 
+        // HUD siempre visible + sincronizado
         SetupOrRefreshHUD();
 
-  
+        // Inicializar eventos de batería para HUDs
         FireBatteryEvents();
 
         Debug.Log($"[PlayerInventory.Start] floors={totalLevels} required={requiredFragmentsToWin} override={fragmentsOverrideActive}");
@@ -106,9 +105,8 @@ public class PlayerInventory : MonoBehaviour
 
     private IEnumerator DeferredSyncRequiredFragments()
     {
- 
+        // esperar 1 frame a que todo esté listo
         yield return null;
-
 
         if (!fragmentsOverrideActive)
         {
@@ -117,7 +115,7 @@ public class PlayerInventory : MonoBehaviour
 
             if (requiredFragmentsToWin != before)
             {
-                Debug.Log($"[PlayerInventory] Deferred sync updated requiredFragmentsToWin {before} -> {requiredFragmentsToWin}");
+                Debug.Log($"[PlayerInventory] Deferred sync updated required {before} -> {requiredFragmentsToWin}");
                 SetupOrRefreshHUD();
             }
         }
@@ -132,32 +130,49 @@ public class PlayerInventory : MonoBehaviour
         }
     }
 
+    // ================== LÓGICA DE FRAGMENTOS ==================
+
     public void AddSoulFragment()
     {
         soulFragmentsCollected = Mathf.Max(0, soulFragmentsCollected + 1);
 
-        Debug.Log($"[PlayerInventory] Fragmentos: {soulFragmentsCollected}/{requiredFragmentsToWin} (pisos:{totalLevels}, override:{fragmentsOverrideActive})");
+        // Asegurar total requerido correcto (por si cambió el perfil o el mapa)
+        if (!fragmentsOverrideActive)
+            RecomputeRequiredFragmentsToWin();
 
+        Debug.Log($"[PlayerInventory] Fragmentos: {soulFragmentsCollected}/{requiredFragmentsToWin}");
+
+        // Dispara evento (HUD y otros)
         onFragmentCollected?.Invoke(soulFragmentsCollected, requiredFragmentsToWin);
 
-        if (fragmentHUD != null && GameManager.Instance != null && GameManager.Instance.IsInCustomMode())
-            fragmentHUD.UpdateFragmentCount(soulFragmentsCollected);
+        // HUD
+        if (fragmentHUD != null)
+            fragmentHUD.UpdateFragmentProgress(soulFragmentsCollected, requiredFragmentsToWin);
 
+        // Persistencia
         if (usePersistence) SaveFragments();
 
-        // ¿Aún faltan fragmentos?
-        if (soulFragmentsCollected < requiredFragmentsToWin)
+        // ¿Ganó?
+        if (soulFragmentsCollected >= requiredFragmentsToWin)
         {
-            if (mapManager != null) mapManager.GoToNextFloor();
-            else Debug.LogWarning("[PlayerInventory] No se encontró el MapManager para cambiar de piso.");
-        }
-        else
-        {
-            // Ganar
             Debug.Log("[PlayerInventory] ¡Has ganado el juego!");
             if (gameManager != null) gameManager.PlayerWin();
             else if (GameManager.Instance != null) GameManager.Instance.PlayerWin();
             else Debug.LogWarning("[PlayerInventory] No se encontró GameManager para procesar la victoria.");
+            return;
+        }
+
+        // Aún faltan fragmentos:
+        // - Si hay sistema secuencial, pedir al Map que spawnee el siguiente fragmento lejos y regenere camino.
+        // - Si es sistema legacy por pisos, usar GoToNextFloor (compat).
+        if (mapManager != null && mapManager.useSequentialFragments)
+        {
+            mapManager.OnFragmentCollected(); // spawnea siguiente fragmento y regenera respetando anclas
+        }
+        else
+        {
+            if (mapManager != null) mapManager.GoToNextFloor(); // compatibilidad legacy
+            else Debug.LogWarning("[PlayerInventory] No hay MapManager para avanzar (legacy).");
         }
     }
 
@@ -165,6 +180,8 @@ public class PlayerInventory : MonoBehaviour
     {
         soulFragmentsCollected = 0;
     }
+
+    // ================== BATERÍAS ==================
 
     public void AddBatteryCharge(BatteryType type, float amount)
     {
@@ -187,6 +204,8 @@ public class PlayerInventory : MonoBehaviour
         if (batterySystem == null) return (0f, 1f);
         return (batterySystem.GetCharge(type), batterySystem.GetMax(type));
     }
+
+    // ================== PERSISTENCIA ==================
 
     public void SaveFragments()
     {
@@ -240,14 +259,14 @@ public class PlayerInventory : MonoBehaviour
         onBatteryChanged.Invoke(type, batterySystem.GetCharge(type), batterySystem.GetMax(type));
     }
 
+    // ================== SINCRONIZACIONES ==================
+
     private void HandleMapUpdated()
     {
-
         if (!fragmentsOverrideActive)
         {
             int before = requiredFragmentsToWin;
             RecomputeRequiredFragmentsToWin();
-
             if (requiredFragmentsToWin != before)
                 Debug.Log($"[PlayerInventory] MapUpdated -> required {before} -> {requiredFragmentsToWin}");
         }
@@ -257,14 +276,23 @@ public class PlayerInventory : MonoBehaviour
 
     private void RecomputeRequiredFragmentsToWin()
     {
-        if (fragmentsOverrideActive) return; 
+        if (fragmentsOverrideActive) return;
 
+        // Si el mapa usa el modo secuencial, tomar su objetivo directamente.
+        if (mapManager != null && mapManager.useSequentialFragments)
+        {
+            requiredFragmentsToWin = Mathf.Max(1, mapManager.targetFragments);
+            totalLevels = requiredFragmentsToWin; // informativo
+            return;
+        }
+
+        // Legacy: igualar a floors
         int floorsNow = (mapManager != null) ? mapManager.floors : totalLevels;
         floorsNow = Mathf.Max(floorsNow, 1);
-
         requiredFragmentsToWin = floorsNow;
         totalLevels = floorsNow;
     }
+
     public void SyncRequiredWithFloorsNow()
     {
         bool hadOverride = fragmentsOverrideActive;
@@ -280,7 +308,7 @@ public class PlayerInventory : MonoBehaviour
         fragmentsOverrideActive = true;
         requiredFragmentsToWin = Mathf.Max(1, required);
 
-        // Refleja en totalLevels solo como info
+        // Reflejar en totalLevels solo como info
         totalLevels = requiredFragmentsToWin;
 
         SetupOrRefreshHUD();
@@ -308,12 +336,15 @@ public class PlayerInventory : MonoBehaviour
     {
         if (fragmentHUD == null) return;
 
-        bool show = (GameManager.Instance != null && GameManager.Instance.IsInCustomMode());
-        fragmentHUD.gameObject.SetActive(show);
-        if (show)
-        {
-            fragmentHUD.totalFragments = requiredFragmentsToWin;
-            fragmentHUD.UpdateFragmentCount(soulFragmentsCollected);
-        }
+        // SIEMPRE visible
+        fragmentHUD.gameObject.SetActive(true);
+
+        // Total = sistema nuevo (MapManager targetFragments) o requiredFragmentsToWin
+        int total = requiredFragmentsToWin;
+        if (mapManager != null && mapManager.useSequentialFragments)
+            total = Mathf.Max(1, mapManager.targetFragments);
+
+        fragmentHUD.totalFragments = total;
+        fragmentHUD.UpdateFragmentCount(soulFragmentsCollected);
     }
 }
