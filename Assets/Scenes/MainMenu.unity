@@ -2321,8 +2321,7 @@ MonoBehaviour:
   autoOpenOnEnable: 1
   backgroundContainer: {fileID: 1982020518}
   backgroundImageTemplate: {fileID: 1868007053}
-  stretchLayersToContainer: 1
-  preserveAspectEachLayer: 1
+  fillMode: 0
   buttonHeight: 48
   spacing: 40
   sidePadding: 24

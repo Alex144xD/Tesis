@@ -23,7 +23,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     [Header("Prefabs (Maze)")]
     public GameObject floorPrefab;
     public GameObject wallPrefab;
-    public GameObject wallTorchPrefab; // decorativa (no santuario)
+    public GameObject wallTorchPrefab; // decorativa
 
     [Header("Prefabs (Entidades)")]
     public List<GameObject> batteryPrefabs;
@@ -39,7 +39,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     public bool autoScaleByMapSize = true;
     [Range(0f, 0.05f)] public float enemyDensity = 0.0075f;
     [Range(0f, 0.05f)] public float batteryDensity = 0.0060f;
-    [Range(0f, 0.02f)] public float fragmentDensity = 0.0f; // no usado en modo secuencial
+    [Range(0f, 0.02f)] public float fragmentDensity = 0.0f; // no usado en secuencial
     public int minEnemies = 2, maxEnemies = 25;
     public int minBatteries = 1, maxBatteries = 20;
 
@@ -48,7 +48,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     public int safeRadiusCells = 5;
 
     [Header("Colocación de pickups")]
-    public bool oneFragmentPerFloor = true; // legacy (no usado en secuencial)
+    public bool oneFragmentPerFloor = true; // legacy
     public float pickupLiftEpsilon = 0.02f;
 
     // ================= FRAGMENTOS SECUENCIALES =================
@@ -65,32 +65,26 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     public int decorativeTorchesNearPath = 3;
     public int torchPathSkip = 5;
 
-    // ================= FX DE CAMBIO DE MAPA =================
-    [Header("FX de Cambio de Mapa")]
-    public bool enableVisibleTransition = true;
-    public CanvasGroup transitionCanvas;       // negro a pantalla completa (alpha 0..1)
+    // ================= FX (SOLO CAMPANA) =================
+    [Header("Cambio de Mapa (sonido)")]
     public AudioClip bellClip;
     [Range(0f, 1f)] public float bellVolume = 0.9f;
 
-    [Header("FX de Cambio de Mapa - Intensificados")]
-    public float transitionFadeOut = 0.6f;
-    public float transitionHoldBlack = 0.25f;
-    public float transitionFadeIn = 0.7f;
+    // ================= OLEADAS (RÁPIDO/ARCADE) =================
+    [Header("Oleadas Progresivas (por campana)")]
+    public bool progressiveEnemyWaves = true;
+    [Tooltip("Si usas oleadas, deja esto en false para empezar sin enemigos.")]
+    public bool spawnEnemiesAtStart = false;
 
-    public bool flashOnExit = true;
-    [Range(0f, 1f)] public float flashAlpha = 0.35f;
-    public float flashDuration = 0.18f;
-    public CanvasGroup transitionFlashCanvas; // opcional para el flash blanco
+    [Tooltip("Prefabs para la 1ª oleada (primera campana).")]
+    public List<GameObject> enemyWave1Prefabs;
+    [Tooltip("Prefabs para la 2ª oleada (segunda campana).")]
+    public List<GameObject> enemyWave2Prefabs;
+    [Tooltip("Prefabs para la 3ª oleada (tercera campana y siguientes).")]
+    public List<GameObject> enemyWave3Prefabs;
 
-    public bool duckGlobalAudio = true;
-    [Range(0f, 1f)] public float duckVolume = 0.4f;
-
-    public bool dimFlashlightDuringTransition = true;
-    [Range(0f, 1f)] public float flashlightDimFactor = 0.25f;
-
-    public bool shakeOnExit = true;
-    public float shakeAmplitude = 0.08f;
-    public float shakeTime = 0.18f;
+    private int regenCount = 0; // cuántas regeneraciones/campanas van
+    private List<GameObject>[] spawnedEnemies; // referencia directa a enemigos por piso
 
     // ================= INTERNOS =================
     private AudioSource sfx;
@@ -98,7 +92,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     // 0: pasillo, 1: muro
     private int[,,] maze;
     private bool[,,] walkableGrid;
-    private bool[,,] sanctuaryGrid; // legacy (no se usa)
     private GameObject[,,] wallObjects;
     private Transform[] floorContainers;
     private List<Vector2Int>[] freeCells;
@@ -114,8 +107,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     private Vector2Int anchorB;
     private bool hasActiveFragment = false;
     private GameObject activeFragmentGO = null;
-
-    private float _savedAudioListenerVolume = 1f;
 
     public event Action OnMapUpdated;
 
@@ -153,9 +144,12 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
         for (int f = 0; f < floors; f++)
         {
-            SpawnTorchWallsOnFloor(f, decorative: false);
+            SpawnTorchWallsOnFloor(f, false);
             RespawnPickupsOnFloor(f, placeFragment: !useSequentialFragments);
-            SpawnEnemiesOnFloor(f);
+
+            // Oleadas: si están activas, NO spawnear enemigos al inicio
+            if (!progressiveEnemyWaves || spawnEnemiesAtStart)
+                SpawnEnemiesOnFloor(f);
         }
 
         ChangeFloor(0);
@@ -172,10 +166,8 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         if (regenTimer >= regenerationInterval)
         {
             regenTimer = 0f;
-            if (enableVisibleTransition)
-                StartCoroutine(RunMapChangeFX_Intense(PartialRegenerate));
-            else
-                PartialRegenerate();
+            // Modo rápido/arcade: sin fades, solo campana + oleadas
+            PartialRegenerate();
         }
 
         int pf = GetPlayerFloor();
@@ -199,7 +191,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     }
     // ====================================
 
-    // ==================== API PÚBLICA (STORY/EFFECTS) ====================
+    // ==================== API PÚBLICA ====================
     public void BeginRun()
     {
         int f = 0;
@@ -236,13 +228,12 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     {
         if (!useSequentialFragments) return;
 
-        // >>> BRÚJULA: desmarcar primario del anterior por seguridad
+        // BRÚJULA: desmarcar primario del anterior por seguridad
         if (activeFragmentGO)
         {
             var prevCt = activeFragmentGO.GetComponent<CompassTarget>();
             if (prevCt) prevCt.isPrimary = false;
         }
-        // -----------------------------------
 
         fragmentsCollected = Mathf.Clamp(fragmentsCollected + 1, 0, targetFragments);
         TrySpawnExtraBatteryIfUnderCap();
@@ -287,9 +278,12 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
         for (int f = 0; f < floors; f++)
         {
-            SpawnTorchWallsOnFloor(f, decorative: false);
+            SpawnTorchWallsOnFloor(f, false);
             RespawnPickupsOnFloor(f, placeFragment: (!useSequentialFragments));
-            SpawnEnemiesOnFloor(f);
+
+            // Silencio inicial si hay oleadas
+            if (!progressiveEnemyWaves || spawnEnemiesAtStart)
+                SpawnEnemiesOnFloor(f);
         }
 
         if (keepAnchors)
@@ -314,18 +308,21 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     {
         maze = new int[floorsCount, w, h];
         walkableGrid = new bool[floorsCount, w, h];
-        sanctuaryGrid = new bool[floorsCount, w, h]; // legacy, no se usa
         wallObjects = new GameObject[floorsCount, w, h];
         freeCells = new List<Vector2Int>[floorsCount];
         spawnedEntities = new List<GameObject>[floorsCount];
         spawnedTorchWalls = new List<GameObject>[floorsCount];
         floorContainers = new Transform[floorsCount];
 
+        // Oleadas
+        spawnedEnemies = new List<GameObject>[floorsCount];
+
         for (int f = 0; f < floorsCount; f++)
         {
             freeCells[f] = new List<Vector2Int>();
             spawnedEntities[f] = new List<GameObject>();
             spawnedTorchWalls[f] = new List<GameObject>();
+            spawnedEnemies[f] = new List<GameObject>();
         }
     }
 
@@ -437,7 +434,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         }
     }
 
-    // ==================== REGENERACIÓN (respeta A/B) ====================
+    // ==================== REGENERACIÓN (instantánea) ====================
     void PartialRegenerate()
     {
         int f = 0;
@@ -497,6 +494,16 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         DecoratePathToGoal(f, anchorA, anchorB);
 
         OnMapUpdated?.Invoke();
+
+        // ==== Sonido de campana al regenerar (modo rápido) ====
+        if (sfx && bellClip) sfx.PlayOneShot(bellClip, bellVolume);
+
+        // ==== Oleadas ====
+        if (progressiveEnemyWaves)
+        {
+            regenCount = Mathf.Clamp(regenCount + 1, 0, int.MaxValue);
+            HandleWaveAfterBell();
+        }
     }
 
     void MarkPreserveDisk(bool[,] mask, Vector2Int center, int radius)
@@ -667,8 +674,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             Quaternion rot = Quaternion.LookRotation(n, Vector3.up);
 
             var t = Instantiate(wallTorchPrefab, wallCenter, rot, floorContainers[floor]);
-            t.transform.localScale = new Vector3(cellSize, wallHeight, cellSize);
-            if (spawnedTorchWalls[floor] == null) spawnedTorchWalls[floor] = new List<GameObject>();
             spawnedTorchWalls[floor].Add(t);
             return true;
         }
@@ -744,11 +749,10 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         SnapToFloorByRendererHeight(go.transform, floor);
         activeFragmentGO = go;
 
-        // >>> BRÚJULA: marcar objetivo primario
+        // BRÚJULA: marcar objetivo primario
         var ct = go.GetComponent<CompassTarget>();
         if (!ct) ct = go.AddComponent<CompassTarget>();
         ct.isPrimary = true;
-        // -------------------------------------
     }
 
     void TrySpawnExtraBatteryIfUnderCap()
@@ -801,13 +805,13 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             SnapToFloorByRendererHeight(go.transform, f);
             spawnedEntities[f].Add(go);
 
-            // >>> BRÚJULA: fragmento legacy (no activo) NO debe ser primario
+            // BRÚJULA: fragmento legacy (no activo) NO debe ser primario
             var ct = go.GetComponent<CompassTarget>() ?? go.AddComponent<CompassTarget>();
             ct.isPrimary = false;
-            // -----------------------------------------------
         }
     }
 
+    // Mantengo este método, pero ahora también registramos en spawnedEnemies para control de oleadas
     void SpawnEnemiesOnFloor(int f)
     {
         if (enemyPrefabs == null || enemyPrefabs.Count == 0) return;
@@ -825,7 +829,8 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             var e = Instantiate(prefab, CellCenterToWorld(cell, f), Quaternion.identity, floorContainers[f]);
 
             SnapToFloorByRendererHeight(e.transform, f);
-            spawnedEntities[f].Add(e);
+            spawnedEntities[f].Add(e);        // compat con limpieza por piso
+            spawnedEnemies[f].Add(e);          // track directo de enemigos
             cells.RemoveAt(idx);
         }
     }
@@ -860,13 +865,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     {
         var copy = new bool[floors, width, height];
         Array.Copy(walkableGrid, copy, walkableGrid.Length);
-        return copy;
-    }
-
-    // Compat: “santuarios” no se usan; Devuelve false siempre.
-    public bool[,,] GetSanctuaryGrid()
-    {
-        var copy = new bool[floors, width, height];
         return copy;
     }
 
@@ -992,90 +990,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         currentFloor = Mathf.Clamp(newFloor, 0, floors - 1);
     }
 
-    // ==================== TRANSICIÓN FX ====================
-    IEnumerator RunMapChangeFX_Intense(Action doChange)
-    {
-        if (duckGlobalAudio)
-        {
-            _savedAudioListenerVolume = AudioListener.volume;
-            AudioListener.volume = duckVolume;
-        }
-
-        if (transitionCanvas)
-        {
-            transitionCanvas.gameObject.SetActive(true);
-            yield return FadeCanvas(transitionCanvas, 0f, 1f, transitionFadeOut);
-        }
-
-        if (sfx && bellClip) sfx.PlayOneShot(bellClip, bellVolume);
-        yield return new WaitForSeconds(transitionHoldBlack);
-
-        doChange?.Invoke();
-
-        if (flashOnExit)
-        {
-            if (transitionFlashCanvas)
-            {
-                transitionFlashCanvas.gameObject.SetActive(true);
-                transitionFlashCanvas.alpha = 0f;
-                yield return FadeCanvas(transitionFlashCanvas, 0f, flashAlpha, flashDuration * 0.5f);
-                yield return FadeCanvas(transitionFlashCanvas, flashAlpha, 0f, flashDuration * 0.5f);
-                transitionFlashCanvas.gameObject.SetActive(false);
-            }
-            else if (transitionCanvas)
-            {
-                yield return FadeCanvas(transitionCanvas, 1f, 0.7f, flashDuration * 0.5f);
-                yield return FadeCanvas(transitionCanvas, 0.7f, 1f, flashDuration * 0.5f);
-            }
-        }
-
-        if (shakeOnExit && player)
-            yield return ShakeTransformOnce(player, shakeAmplitude, shakeTime);
-
-        if (transitionCanvas)
-        {
-            yield return FadeCanvas(transitionCanvas, 1f, 0f, transitionFadeIn);
-            transitionCanvas.gameObject.SetActive(false);
-        }
-
-        if (duckGlobalAudio)
-            AudioListener.volume = _savedAudioListenerVolume;
-    }
-
-    IEnumerator FadeCanvas(CanvasGroup cg, float from, float to, float dur)
-    {
-        cg.alpha = from;
-        float t = 0f;
-        while (t < dur)
-        {
-            t += Time.deltaTime;
-            cg.alpha = Mathf.Lerp(from, to, t / Mathf.Max(0.0001f, dur));
-            yield return null;
-        }
-        cg.alpha = to;
-    }
-
-    IEnumerator ShakeTransformOnce(Transform target, float amplitude, float duration)
-    {
-        if (!target) yield break;
-        Vector3 start = target.localPosition;
-        float t = 0f;
-        while (t < duration)
-        {
-            t += Time.deltaTime;
-            float k = 1f - (t / Mathf.Max(0.0001f, duration));
-            Vector3 off = new Vector3(
-                (UnityEngine.Random.value - 0.5f) * 2f * amplitude * k,
-                (UnityEngine.Random.value - 0.5f) * 2f * amplitude * k,
-                0f
-            );
-            target.localPosition = start + off;
-            yield return null;
-        }
-        target.localPosition = start;
-    }
-
-    // ==================== SPAWN A (JUGADOR) ====================
+    // ==================== SPAWN A (JUGADOR): helpers ====================
     Vector2Int ChooseStartCellNearEdge(int floor)
     {
         var free = GetFreeCells(floor);
@@ -1120,13 +1035,14 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             for (int i = 0; i < 4; i++)
             {
                 int nx = c.x + dx[i], ny = c.y + dy[i];
-                if (!Inside(new Vector2Int(nx, ny)) || visited[nx, ny]) continue;
+                var nb = new Vector2Int(nx, ny);
+                if (!Inside(nb) || visited[nx, ny]) continue;
                 visited[nx, ny] = true;
 
                 if (maze[floor, nx, ny] == 0)
-                    return new Vector2Int(nx, ny);
+                    return nb;
 
-                q.Enqueue(new Vector2Int(nx, ny));
+                q.Enqueue(nb);
             }
         }
         return ClampToBounds(from);
@@ -1198,6 +1114,75 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             if (a == b) return;
             var tmp = heap[a]; heap[a] = heap[b]; heap[b] = tmp;
             loc[heap[a].item] = a; loc[heap[b].item] = b;
+        }
+    }
+
+    // ==================== OLEADAS: helpers ====================
+    void DespawnEnemiesOnFloor(int f)
+    {
+        if (spawnedEnemies == null || spawnedEnemies[f] == null) return;
+        foreach (var e in spawnedEnemies[f]) if (e) Destroy(e);
+        spawnedEnemies[f].Clear();
+        // spawnedEntities puede conservar referencias nulas; es seguro.
+    }
+
+    void SpawnEnemiesWaveOnFloor(int f, List<GameObject> wavePrefabs)
+    {
+        if (wavePrefabs == null || wavePrefabs.Count == 0) return;
+
+        var cells = GetFreeCells(f);
+        if (cells.Count == 0) return;
+
+        int enemies = autoScaleByMapSize ? ScaledCount(enemyDensity, minEnemies, maxEnemies) : minEnemies;
+
+        // Reemplazar ola anterior
+        DespawnEnemiesOnFloor(f);
+
+        for (int i = 0; i < enemies && cells.Count > 0; i++)
+        {
+            var prefab = wavePrefabs[UnityEngine.Random.Range(0, wavePrefabs.Count)];
+            int idx = UnityEngine.Random.Range(0, cells.Count);
+            var cell = cells[idx];
+
+            var e = Instantiate(prefab, CellCenterToWorld(cell, f), Quaternion.identity, floorContainers[f]);
+            SnapToFloorByRendererHeight(e.transform, f);
+
+            // Registrar en ambas listas para mantener compatibilidad
+            spawnedEnemies[f].Add(e);
+            spawnedEntities[f].Add(e);
+
+            cells.RemoveAt(idx);
+        }
+    }
+
+    void HandleWaveAfterBell()
+    {
+        int f = 0; // piso único por ahora
+
+        if (regenCount == 1 && enemyWave1Prefabs != null && enemyWave1Prefabs.Count > 0)
+        {
+            SpawnEnemiesWaveOnFloor(f, enemyWave1Prefabs);
+            return;
+        }
+        if (regenCount == 2 && enemyWave2Prefabs != null && enemyWave2Prefabs.Count > 0)
+        {
+            SpawnEnemiesWaveOnFloor(f, enemyWave2Prefabs);
+            return;
+        }
+        if (regenCount >= 3 && enemyWave3Prefabs != null && enemyWave3Prefabs.Count > 0)
+        {
+            SpawnEnemiesWaveOnFloor(f, enemyWave3Prefabs);
+            return;
+        }
+
+        // Fallback si no configuraste listas específicas
+        if (regenCount >= 1 &&
+            (enemyWave1Prefabs == null || enemyWave1Prefabs.Count == 0) &&
+            (enemyWave2Prefabs == null || enemyWave2Prefabs.Count == 0) &&
+            (enemyWave3Prefabs == null || enemyWave3Prefabs.Count == 0))
+        {
+            DespawnEnemiesOnFloor(f);
+            SpawnEnemiesOnFloor(f);
         }
     }
 }

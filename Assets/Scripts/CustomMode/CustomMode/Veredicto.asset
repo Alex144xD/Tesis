@@ -31,12 +31,12 @@ MonoBehaviour:
       batteryDrain: -0.08
       batteryDensity: 0.08
       fragmentDensity: 0
-      fragmentsDelta: 0
+      fragmentsDelta: -1
       mapSizePercent: -0.08
       torchesOnlyStartFew: 0
       enemy2DrainsBattery: 0
       enemy3ResistsLight: 0
-    next: {fileID: 0}
+    next: {fileID: 11400000, guid: db56b3d7400509f499bb8494659f6948, type: 2}
   - text: "\u201CDesaf\xEDo al abismo.\u201D"
     effects:
       enemyStat: 0.12
@@ -44,9 +44,9 @@ MonoBehaviour:
       batteryDrain: 0.08
       batteryDensity: -0.08
       fragmentDensity: 0.1
-      fragmentsDelta: 0
+      fragmentsDelta: 2
       mapSizePercent: 0.1
       torchesOnlyStartFew: 0
       enemy2DrainsBattery: 1
       enemy3ResistsLight: 1
-    next: {fileID: 0}
+    next: {fileID: 11400000, guid: db56b3d7400509f499bb8494659f6948, type: 2}

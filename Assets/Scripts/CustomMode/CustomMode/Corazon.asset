@@ -31,7 +31,7 @@ MonoBehaviour:
       batteryDrain: -0.05
       batteryDensity: 0.05
       fragmentDensity: 0
-      fragmentsDelta: 0
+      fragmentsDelta: 1
       mapSizePercent: -0.05
       torchesOnlyStartFew: 0
       enemy2DrainsBattery: 0
@@ -44,7 +44,7 @@ MonoBehaviour:
       batteryDrain: 0.05
       batteryDensity: -0.05
       fragmentDensity: 0.05
-      fragmentsDelta: 0
+      fragmentsDelta: 2
       mapSizePercent: 0.08
       torchesOnlyStartFew: 0
       enemy2DrainsBattery: 0

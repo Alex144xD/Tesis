@@ -7,6 +7,8 @@ using System.Collections.Generic;
 [DisallowMultipleComponent]
 public class CustomModeStoryPanel : MonoBehaviour
 {
+    public enum FillMode { Stretch, Fit, Cover } // NUEVO
+
     [Header("UI")]
     public TextMeshProUGUI titleText;
     public TextMeshProUGUI bodyText;
@@ -19,14 +21,13 @@ public class CustomModeStoryPanel : MonoBehaviour
     public bool autoOpenOnEnable = true;
 
     [Header("Fondos por nodo (múltiples capas)")]
-    [Tooltip("Contenedor donde se crearán las capas (Images). Debe estar detrás del texto.")]
+    [Tooltip("Contenedor donde se crearán las capas (Images). Debe estar detrás del texto y estirado a toda la pantalla.")]
     public RectTransform backgroundContainer;
     [Tooltip("Plantilla opcional (desactivada) para instanciar cada capa. Si es null, se crearán Images simples.")]
     public Image backgroundImageTemplate;
-    [Tooltip("Forzar que cada capa estire al tamaño del contenedor (anchor stretch).")]
-    public bool stretchLayersToContainer = true;
-    [Tooltip("Conservar aspecto del sprite en cada capa (si el Image lo soporta).")]
-    public bool preserveAspectEachLayer = true;
+
+    [Tooltip("Cómo rellenar el contenedor: Stretch (deforma), Fit (encaja), Cover (cubre recortando)")]
+    public FillMode fillMode = FillMode.Cover; // por defecto: CUBRIR
 
     [Header("Layout (botones desde el centro hacia abajo)")]
     public float buttonHeight = 44f;
@@ -73,7 +74,6 @@ public class CustomModeStoryPanel : MonoBehaviour
         if (optionButtonPrefab && optionButtonPrefab.gameObject.activeSelf)
             optionButtonPrefab.gameObject.SetActive(false);
 
-        // Asegura que el template (si existe) esté desactivado para clonar limpio
         if (backgroundImageTemplate && backgroundImageTemplate.gameObject.activeSelf)
             backgroundImageTemplate.gameObject.SetActive(false);
     }
@@ -112,24 +112,19 @@ public class CustomModeStoryPanel : MonoBehaviour
     // ====================== RENDER ======================
     void RenderCurrent()
     {
-        // Limpia botones anteriores
         for (int i = 0; i < spawnedButtons.Count; i++)
             if (spawnedButtons[i]) Destroy(spawnedButtons[i]);
         spawnedButtons.Clear();
 
-        // Si no hay nodo actual, finalizar
         if (!current) { FinishAndApply(); return; }
 
-        // Título y cuerpo
         string narr = current.narrative ?? string.Empty;
         SplitFirstLine(narr, out string firstLine, out string rest);
         if (titleText) titleText.text = firstLine;
         if (bodyText) bodyText.text = string.IsNullOrEmpty(rest) ? (string.IsNullOrEmpty(firstLine) ? "<i>(Sin texto)</i>" : firstLine) : rest;
 
-        // === Fondos por nodo (múltiples capas) ===
         ApplyBackgroundLayersForNode(current);
 
-        // Sin opciones => finalizar
         if (current.options == null || current.options.Length == 0)
         {
             if (debugLogs) Debug.LogWarning("[Story] Nodo sin opciones, finalizando.");
@@ -137,11 +132,9 @@ public class CustomModeStoryPanel : MonoBehaviour
             return;
         }
 
-        // Crear botones de opciones
         foreach (var opt in current.options)
         {
             var captured = opt;
-
             Button btn = optionButtonPrefab
                 ? Instantiate(optionButtonPrefab, transform)
                 : CreateRuntimeButton(captured.text, transform);
@@ -163,39 +156,33 @@ public class CustomModeStoryPanel : MonoBehaviour
     {
         if (!backgroundContainer) return;
 
-        // 1) Limpia capas previas (conserva el template si es hijo del contenedor)
+        // Limpiar hijos (conserva template si es hijo directo)
         for (int i = backgroundContainer.childCount - 1; i >= 0; i--)
         {
             var child = backgroundContainer.GetChild(i);
-            if (backgroundImageTemplate && child == backgroundImageTemplate.rectTransform) continue; // conserva template oculto
+            if (backgroundImageTemplate && child == backgroundImageTemplate.rectTransform) continue;
             Destroy(child.gameObject);
         }
 
-        // 2) Determina lista de sprites (incluye compat si solo se puso backgroundSprite)
         List<Sprite> sprites = null;
         if (node.backgroundSprites != null && node.backgroundSprites.Count > 0)
-        {
             sprites = node.backgroundSprites;
-        }
         else if (node.backgroundSprite != null)
-        {
             sprites = new List<Sprite> { node.backgroundSprite };
-        }
 
-        if (sprites == null || sprites.Count == 0)
-        {
-            if (debugLogs) Debug.Log("[Story] Nodo sin sprites de fondo.");
-            return;
-        }
+        if (sprites == null || sprites.Count == 0) return;
 
-        // 3) Crea una capa por sprite (0 = fondo, último = arriba)
+        // Medidas del contenedor
+        var contSize = backgroundContainer.rect.size;
+        if (contSize.x <= 0f || contSize.y <= 0f)
+            contSize = new Vector2(Screen.width, Screen.height);
+
         for (int i = 0; i < sprites.Count; i++)
         {
             var sp = sprites[i];
             if (!sp) continue;
 
-            Image img = null;
-
+            Image img;
             if (backgroundImageTemplate)
             {
                 img = Instantiate(backgroundImageTemplate, backgroundContainer);
@@ -204,27 +191,63 @@ public class CustomModeStoryPanel : MonoBehaviour
             else
             {
                 var go = new GameObject($"BG_Layer_{i}", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-                var rt = (RectTransform)go.transform;
-                rt.SetParent(backgroundContainer, false);
                 img = go.GetComponent<Image>();
+                go.transform.SetParent(backgroundContainer, false);
             }
 
-            // Ajustes visuales
             img.sprite = sp;
             img.color = node.bgTint;
-            img.preserveAspect = preserveAspectEachLayer;
+            img.type = Image.Type.Simple;
+            img.preserveAspect = false; // controlaremos el tamaño nosotros
 
-            // Layout: estirar a contenedor si está activo
-            var rtImg = (RectTransform)img.transform;
-            if (stretchLayersToContainer)
-            {
-                rtImg.anchorMin = Vector2.zero;
-                rtImg.anchorMax = Vector2.one;
-                rtImg.pivot = new Vector2(0.5f, 0.5f);
-                rtImg.offsetMin = Vector2.zero;
-                rtImg.offsetMax = Vector2.zero;
-            }
+            SizeImageToFill(img.rectTransform, sp, contSize, fillMode);
         }
+    }
+
+    // Coloca el RectTransform para Stretch/Fit/Cover manteniendo centrado
+    void SizeImageToFill(RectTransform rt, Sprite sprite, Vector2 containerSize, FillMode mode)
+    {
+        if (!rt || !sprite) return;
+
+        // ancla centrada para poder cambiar sizeDelta libremente
+        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+
+        var sprSize = sprite.rect.size; // px del sprite
+        if (sprSize.x <= 0f || sprSize.y <= 0f) sprSize = containerSize;
+
+        float contW = containerSize.x;
+        float contH = containerSize.y;
+        float sprW = sprSize.x;
+        float sprH = sprSize.y;
+
+        float scaleX = contW / sprW;
+        float scaleY = contH / sprH;
+
+        Vector2 target;
+
+        switch (mode)
+        {
+            case FillMode.Stretch:
+                // deforma para llenar exacto
+                target = containerSize;
+                break;
+
+            case FillMode.Fit:
+                // encaja dentro manteniendo relación (pueden quedar bandas)
+                float fit = Mathf.Min(scaleX, scaleY);
+                target = new Vector2(sprW * fit, sprH * fit);
+                break;
+
+            default: // Cover
+                // cubre todo manteniendo relación (puede recortar exceso)
+                float cover = Mathf.Max(scaleX, scaleY);
+                target = new Vector2(sprW * cover, sprH * cover);
+                break;
+        }
+
+        rt.sizeDelta = target;
+        rt.anchoredPosition = Vector2.zero;
     }
 
     // ====================== BOTONES / LAYOUT ======================
@@ -233,11 +256,7 @@ public class CustomModeStoryPanel : MonoBehaviour
         if (string.IsNullOrEmpty(s)) { firstLine = ""; rest = ""; return; }
         int idx = s.IndexOf('\n');
         if (idx < 0) { firstLine = s; rest = ""; }
-        else
-        {
-            firstLine = s.Substring(0, idx).TrimEnd();
-            rest = s.Substring(idx + 1).TrimStart();
-        }
+        else { firstLine = s.Substring(0, idx).TrimEnd(); rest = s.Substring(idx + 1).TrimStart(); }
     }
 
     void SetupButtonRectCenterAnchored(Button btn)
@@ -316,7 +335,6 @@ public class CustomModeStoryPanel : MonoBehaviour
         return btn;
     }
 
-    // === Estilo para los textos de los botones ===
     void StyleButtonLabelText(Transform root, string text)
     {
         if (!root) return;
@@ -383,7 +401,7 @@ public class CustomModeStoryPanel : MonoBehaviour
 
         if (e.torchesOnlyStartFew != TriBool.Unset) f_torchesFew = e.torchesOnlyStartFew;
         if (e.enemy2DrainsBattery != TriBool.Unset) f_enemy2Drain = e.enemy2DrainsBattery;
-        if (e.enemy3ResistsLight != TriBool.Unset) f_enemy3Resist = e.enemy3ResistsLight; // ← corregido
+        if (e.enemy3ResistsLight != TriBool.Unset) f_enemy3Resist = e.enemy3ResistsLight;
     }
 
     void FinishAndApply()
@@ -431,8 +449,7 @@ public class CustomModeStoryPanel : MonoBehaviour
 
     void ResetAcc()
     {
-        accEnemyStat = accEnemyDensity = accBatteryDrain = accBatteryDensity = 0f;
-        accFragmentDensity = 0f;
+        accEnemyStat = accEnemyDensity = accBatteryDrain = accBatteryDensity = accFragmentDensity = 0f;
         accFragments = 0;
         accMapSizePct = 0f;
         f_torchesFew = f_enemy2Drain = f_enemy3Resist = TriBool.Unset;
