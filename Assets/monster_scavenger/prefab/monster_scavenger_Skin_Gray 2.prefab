@@ -528,6 +528,8 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 3727887311221173408}
+  - component: {fileID: 1809918729435738490}
+  - component: {fileID: 1174533039898864365}
   m_Layer: 0
   m_Name: hand.r
   m_TagString: Untagged
@@ -550,6 +552,44 @@ Transform:
   m_Children: []
   m_Father: {fileID: 3690719155999789313}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!65 &1809918729435738490
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2755802143655762764}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 0.1, y: 0.1, z: 0.1}
+  m_Center: {x: 0, y: 0, z: 0}
+--- !u!114 &1174533039898864365
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2755802143655762764}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f48f420b194668841a4228fb36e28bd8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  damage: 5
+  active: 0
+  perTargetCooldown: 0.35
+  ownerFSM: {fileID: 831086842938154725}
+  requireAttackState: 1
 --- !u!1 &2788298706562661970
 GameObject:
   m_ObjectHideFlags: 0
@@ -778,6 +818,8 @@ MonoBehaviour:
   groundSnap: 2
   attackDamage: 10
   attackCooldown: 1
+  useSimpleDamageBox: 1
+  simpleHitbox: {fileID: 1174533039898864365}
   separationRadius: 0.8
   separationForce: 2
   enemyLayer:
@@ -808,6 +850,12 @@ MonoBehaviour:
   deflectDuration: 0.8
   immediateRetreatDistance: 4
   scareKnockback: 1.2
+  scareFlashEnabled: 1
+  scareFlashDuration: 0.5
+  scareEmissionIntensity: 2.5
+  scareAffectBaseColor: 1
+  scareAffectEmission: 1
+  scareRenderers: []
 --- !u!143 &4429191810629067065
 CharacterController:
   m_ObjectHideFlags: 0

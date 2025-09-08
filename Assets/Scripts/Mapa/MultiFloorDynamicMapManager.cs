@@ -28,6 +28,8 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     [Header("Prefabs (Entidades)")]
     public List<GameObject> batteryPrefabs;
     public GameObject soulFragmentPrefab;
+
+    // Fallback genérico (se usa sólo si los tipos E1/E2/E3 no están asignados)
     public List<GameObject> enemyPrefabs;
 
     [Header("Jugador")]
@@ -37,10 +39,10 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
     [Header("Auto-scaling entities")]
     public bool autoScaleByMapSize = true;
-    [Range(0f, 0.05f)] public float enemyDensity = 0.0075f;
+    [Range(0f, 0.05f)] public float enemyDensity = 0.0075f;   // ignorado por oleadas
     [Range(0f, 0.05f)] public float batteryDensity = 0.0060f;
     [Range(0f, 0.02f)] public float fragmentDensity = 0.0f; // no usado en secuencial
-    public int minEnemies = 2, maxEnemies = 25;
+    public int minEnemies = 2, maxEnemies = 25;              // ignorado por oleadas
     public int minBatteries = 1, maxBatteries = 20;
 
     [Header("Dinámica")]
@@ -76,12 +78,13 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     [Tooltip("Si usas oleadas, deja esto en false para empezar sin enemigos.")]
     public bool spawnEnemiesAtStart = false;
 
-    [Tooltip("Prefabs para la 1ª oleada (primera campana).")]
-    public List<GameObject> enemyWave1Prefabs;
-    [Tooltip("Prefabs para la 2ª oleada (segunda campana).")]
-    public List<GameObject> enemyWave2Prefabs;
-    [Tooltip("Prefabs para la 3ª oleada (tercera campana y siguientes).")]
-    public List<GameObject> enemyWave3Prefabs;
+    [Header("Prefabs por tipo de enemigo (asignar en Inspector)")]
+    public List<GameObject> enemyType1Prefabs; // Enemigo 1 (normal)
+    public List<GameObject> enemyType2Prefabs; // Enemigo 2 (grande/lento)
+    public List<GameObject> enemyType3Prefabs; // Enemigo 3 (rápido)
+
+    [Tooltip("Forzar límite de 1 a 3 enemigos en cualquier spawn/oleada.")]
+    public bool limitEnemiesToOneToThree = true;
 
     private int regenCount = 0; // cuántas regeneraciones/campanas van
     private List<GameObject>[] spawnedEnemies; // referencia directa a enemigos por piso
@@ -147,7 +150,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             SpawnTorchWallsOnFloor(f, false);
             RespawnPickupsOnFloor(f, placeFragment: !useSequentialFragments);
 
-            // Oleadas: si están activas, NO spawnear enemigos al inicio
+            // Oleadas: si están activas, NO spawnear enemigos al inicio salvo se fuerce.
             if (!progressiveEnemyWaves || spawnEnemiesAtStart)
                 SpawnEnemiesOnFloor(f);
         }
@@ -157,6 +160,13 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         if (useSequentialFragments)
         {
             BeginRun();
+        }
+
+        // Si quieres que ya arranque en Oleada 1 sin esperar campana:
+        if (progressiveEnemyWaves && spawnEnemiesAtStart)
+        {
+            regenCount = 1; // primera oleada
+            HandleWaveAfterBell();
         }
     }
 
@@ -811,26 +821,50 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         }
     }
 
-    // Mantengo este método, pero ahora también registramos en spawnedEnemies para control de oleadas
+    // Spawn libre (sólo si no usas oleadas, o si fuerzas spawn al inicio)
     void SpawnEnemiesOnFloor(int f)
     {
-        if (enemyPrefabs == null || enemyPrefabs.Count == 0) return;
+        if (progressiveEnemyWaves && !spawnEnemiesAtStart) return;
 
         var cells = GetFreeCells(f);
         if (cells.Count == 0) return;
 
-        int enemies = autoScaleByMapSize ? ScaledCount(enemyDensity, minEnemies, maxEnemies) : minEnemies;
+        // Random 1..3 sin usar densidad
+        int enemies = UnityEngine.Random.Range(1, 4); // 1,2,3
+        if (limitEnemiesToOneToThree) enemies = Mathf.Clamp(enemies, 1, 3);
+
+        bool hasTyped =
+            (enemyType1Prefabs != null && enemyType1Prefabs.Count > 0) ||
+            (enemyType2Prefabs != null && enemyType2Prefabs.Count > 0) ||
+            (enemyType3Prefabs != null && enemyType3Prefabs.Count > 0);
+
+        DespawnEnemiesOnFloor(f);
 
         for (int i = 0; i < enemies && cells.Count > 0; i++)
         {
-            var prefab = enemyPrefabs[UnityEngine.Random.Range(0, enemyPrefabs.Count)];
             int idx = UnityEngine.Random.Range(0, cells.Count);
             var cell = cells[idx];
-            var e = Instantiate(prefab, CellCenterToWorld(cell, f), Quaternion.identity, floorContainers[f]);
 
+            GameObject prefab = null;
+            if (hasTyped)
+            {
+                int pick = UnityEngine.Random.Range(1, 4);
+                List<GameObject> pool = (pick == 1) ? enemyType1Prefabs :
+                                        (pick == 2) ? enemyType2Prefabs :
+                                                      enemyType3Prefabs;
+                if (pool != null && pool.Count > 0)
+                    prefab = pool[UnityEngine.Random.Range(0, pool.Count)];
+            }
+            if (!prefab && enemyPrefabs != null && enemyPrefabs.Count > 0)
+                prefab = enemyPrefabs[UnityEngine.Random.Range(0, enemyPrefabs.Count)];
+
+            if (!prefab) break;
+
+            var e = Instantiate(prefab, CellCenterToWorld(cell, f), Quaternion.identity, floorContainers[f]);
             SnapToFloorByRendererHeight(e.transform, f);
-            spawnedEntities[f].Add(e);        // compat con limpieza por piso
-            spawnedEnemies[f].Add(e);          // track directo de enemigos
+
+            spawnedEnemies[f].Add(e);
+            spawnedEntities[f].Add(e);
             cells.RemoveAt(idx);
         }
     }
@@ -1117,72 +1151,113 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         }
     }
 
-    // ==================== OLEADAS: helpers ====================
+    // ==================== OLEADAS ====================
+    enum EnemyType { E1, E2, E3 }
+
+    List<GameObject> PickFromType(EnemyType t)
+    {
+        List<GameObject> pool = null;
+        switch (t)
+        {
+            case EnemyType.E1: pool = enemyType1Prefabs; break;
+            case EnemyType.E2: pool = enemyType2Prefabs; break;
+            case EnemyType.E3: pool = enemyType3Prefabs; break;
+        }
+        if (pool == null || pool.Count == 0) return null;
+        return new List<GameObject> { pool[UnityEngine.Random.Range(0, pool.Count)] };
+    }
+
+    // Devuelve la COMPOSICIÓN EXACTA (lista de prefabs) para la oleada N (1..9). Luego repite.
+    List<GameObject> BuildWavePrefabsFor(int waveIndex1to9)
+    {
+        int w = Mathf.Clamp(waveIndex1to9, 1, 9);
+        // 1) E1
+        // 2) E2
+        // 3) E3
+        // 4) E2 + E1
+        // 5) E3 + E1
+        // 6) E3 + E2
+        // 7) E1 + E2 + E3
+        // 8) E2 + E3 + E1
+        // 9) E3 + E1 + E2
+        EnemyType[][] pattern = new EnemyType[][]
+        {
+            new []{ EnemyType.E1 },
+            new []{ EnemyType.E2 },
+            new []{ EnemyType.E3 },
+            new []{ EnemyType.E2, EnemyType.E1 },
+            new []{ EnemyType.E3, EnemyType.E1 },
+            new []{ EnemyType.E3, EnemyType.E2 },
+            new []{ EnemyType.E1, EnemyType.E2, EnemyType.E3 },
+            new []{ EnemyType.E2, EnemyType.E3, EnemyType.E1 },
+            new []{ EnemyType.E3, EnemyType.E1, EnemyType.E2 },
+        };
+
+        var types = pattern[w - 1];
+        var result = new List<GameObject>(types.Length);
+
+        foreach (var t in types)
+        {
+            var picked = PickFromType(t);
+            if (picked != null && picked.Count > 0)
+                result.Add(picked[0]);
+        }
+
+        // Fallback si quedó vacío
+        if (result.Count == 0 && enemyPrefabs != null && enemyPrefabs.Count > 0)
+            result.Add(enemyPrefabs[UnityEngine.Random.Range(0, enemyPrefabs.Count)]);
+
+        // Límite 1..3 por seguridad
+        if (limitEnemiesToOneToThree)
+            result = result.GetRange(0, Mathf.Clamp(result.Count, 1, 3));
+
+        return result;
+    }
+
     void DespawnEnemiesOnFloor(int f)
     {
         if (spawnedEnemies == null || spawnedEnemies[f] == null) return;
         foreach (var e in spawnedEnemies[f]) if (e) Destroy(e);
         spawnedEnemies[f].Clear();
-        // spawnedEntities puede conservar referencias nulas; es seguro.
     }
 
-    void SpawnEnemiesWaveOnFloor(int f, List<GameObject> wavePrefabs)
+    // Oleada con lista exacta de prefabs (capada a 1..3)
+    void SpawnEnemiesWaveOnFloor(int f, List<GameObject> exactPrefabsToSpawn)
     {
-        if (wavePrefabs == null || wavePrefabs.Count == 0) return;
+        if (exactPrefabsToSpawn == null || exactPrefabsToSpawn.Count == 0) return;
 
         var cells = GetFreeCells(f);
         if (cells.Count == 0) return;
 
-        int enemies = autoScaleByMapSize ? ScaledCount(enemyDensity, minEnemies, maxEnemies) : minEnemies;
+        int count = exactPrefabsToSpawn.Count;
+        if (limitEnemiesToOneToThree) count = Mathf.Clamp(count, 1, 3);
 
-        // Reemplazar ola anterior
         DespawnEnemiesOnFloor(f);
 
-        for (int i = 0; i < enemies && cells.Count > 0; i++)
+        for (int i = 0; i < count && cells.Count > 0; i++)
         {
-            var prefab = wavePrefabs[UnityEngine.Random.Range(0, wavePrefabs.Count)];
+            var prefab = exactPrefabsToSpawn[i];
+            if (!prefab) continue;
+
             int idx = UnityEngine.Random.Range(0, cells.Count);
             var cell = cells[idx];
 
             var e = Instantiate(prefab, CellCenterToWorld(cell, f), Quaternion.identity, floorContainers[f]);
             SnapToFloorByRendererHeight(e.transform, f);
 
-            // Registrar en ambas listas para mantener compatibilidad
             spawnedEnemies[f].Add(e);
             spawnedEntities[f].Add(e);
-
             cells.RemoveAt(idx);
         }
     }
 
     void HandleWaveAfterBell()
     {
-        int f = 0; // piso único por ahora
+        int f = 0; // piso único
+        // regenCount empieza en 1 para la primera campana => waveIndex = 1..9 y luego loop
+        int waveIndex = ((regenCount - 1) % 9) + 1;
 
-        if (regenCount == 1 && enemyWave1Prefabs != null && enemyWave1Prefabs.Count > 0)
-        {
-            SpawnEnemiesWaveOnFloor(f, enemyWave1Prefabs);
-            return;
-        }
-        if (regenCount == 2 && enemyWave2Prefabs != null && enemyWave2Prefabs.Count > 0)
-        {
-            SpawnEnemiesWaveOnFloor(f, enemyWave2Prefabs);
-            return;
-        }
-        if (regenCount >= 3 && enemyWave3Prefabs != null && enemyWave3Prefabs.Count > 0)
-        {
-            SpawnEnemiesWaveOnFloor(f, enemyWave3Prefabs);
-            return;
-        }
-
-        // Fallback si no configuraste listas específicas
-        if (regenCount >= 1 &&
-            (enemyWave1Prefabs == null || enemyWave1Prefabs.Count == 0) &&
-            (enemyWave2Prefabs == null || enemyWave2Prefabs.Count == 0) &&
-            (enemyWave3Prefabs == null || enemyWave3Prefabs.Count == 0))
-        {
-            DespawnEnemiesOnFloor(f);
-            SpawnEnemiesOnFloor(f);
-        }
+        var exactPrefabs = BuildWavePrefabsFor(waveIndex);
+        SpawnEnemiesWaveOnFloor(f, exactPrefabs);
     }
 }

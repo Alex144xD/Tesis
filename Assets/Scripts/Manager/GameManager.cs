@@ -19,6 +19,9 @@ public class GameManager : MonoBehaviour
     [Header("Controles")]
     public KeyCode pauseKey = KeyCode.Escape;
 
+    [Header("Escenas donde SÍ se permite pausa")]
+    public string[] pauseEnabledScenes = new string[] { "Game", "Tutorial" };
+
     private bool inCustomMode = false;
 
     void Awake()
@@ -46,8 +49,8 @@ public class GameManager : MonoBehaviour
 
     void Update()
     {
-        // Evita pausar si ya terminó la partida
-        if (Input.GetKeyDown(pauseKey) && !isGameOver && !isVictory)
+        // Evita pausar si ya terminó la partida y restringe a escenas permitidas
+        if (Input.GetKeyDown(pauseKey) && !isGameOver && !isVictory && IsPauseAllowedInCurrentScene())
         {
             if (!isPaused) PauseGame();
             else ResumeGame();
@@ -106,7 +109,7 @@ public class GameManager : MonoBehaviour
         isGameOver = false;
         isVictory = false;
 
-        // ========== NUEVO: apagar paneles ANTES de cargar la escena ==========
+        // Apagar paneles ANTES de cargar la escena
         if (UIManager.Instance) UIManager.Instance.PreSceneChangeCleanup();
 
         onGameRestart?.Invoke();
@@ -172,5 +175,19 @@ public class GameManager : MonoBehaviour
                 ShowCursor(isPaused);
             }
         }
+    }
+
+    bool IsPauseAllowedInCurrentScene()
+    {
+        var s = SceneManager.GetActiveScene().name;
+        if (pauseEnabledScenes == null || pauseEnabledScenes.Length == 0) return true; // por si lo quieres global
+        for (int i = 0; i < pauseEnabledScenes.Length; i++)
+        {
+            var name = pauseEnabledScenes[i];
+            if (!string.IsNullOrEmpty(name) &&
+                string.Equals(s, name, System.StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 }

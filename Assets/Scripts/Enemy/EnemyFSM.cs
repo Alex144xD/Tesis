@@ -8,6 +8,9 @@ public class EnemyFSM : MonoBehaviour
     public enum EnemyState { Idle, Patrol, Chase, Attack, Flee }
     public enum EnemyKind { Basic, Heavy, Runner }
 
+    // ===== API pública =====
+    public EnemyState CurrentState => currentState;
+
     [Header("Tipo de enemigo")]
     public EnemyKind kind = EnemyKind.Basic;
 
@@ -51,7 +54,11 @@ public class EnemyFSM : MonoBehaviour
 
     [Header("Daño")]
     public float attackDamage = 10f;
-    public float attackCooldown = 1f;
+    public float attackCooldown = 1f; // usado solo si no se usa hitbox simple
+
+    [Header("Hitbox simple (sin layers / sin animator)")]
+    public bool useSimpleDamageBox = true;
+    public SimpleDamageBox simpleHitbox;
 
     [Header("Separación anti-colisiones")]
     public float separationRadius = 0.8f;
@@ -92,6 +99,7 @@ public class EnemyFSM : MonoBehaviour
 
     // ---- estado interno
     private EnemyState currentState;
+    private EnemyState _prevState;
     private static Transform player;
     private MultiFloorDynamicMapManager map;
 
@@ -138,6 +146,24 @@ public class EnemyFSM : MonoBehaviour
     private float deflectUntil = -999f;
     private float scareLockUntil = -999f;
 
+    // ===== Feedback visual (flash de color al espantarse) =====
+    [Header("Feedback visual (scare flash)")]
+    public bool scareFlashEnabled = true;
+    [Range(0.05f, 2f)] public float scareFlashDuration = 0.5f;
+    [Range(0f, 8f)] public float scareEmissionIntensity = 2.5f;
+    public bool scareAffectBaseColor = true;
+    public bool scareAffectEmission = true;
+    public Renderer[] scareRenderers;
+
+    private struct MatCache
+    {
+        public Material mat;
+        public bool hasColor; public Color baseColor;
+        public bool hasEmission; public Color baseEmission;
+    }
+    private readonly List<MatCache> _scareMatCache = new List<MatCache>(8);
+    private Coroutine _scareFlashCo;
+
     void Awake()
     {
         if (!controller) controller = GetComponent<CharacterController>();
@@ -175,6 +201,14 @@ public class EnemyFSM : MonoBehaviour
         }
 
         myId = GetInstanceID();
+
+        // ===== Inicializa el hitbox simple =====
+        if (simpleHitbox)
+        {
+            if (!simpleHitbox.ownerFSM) simpleHitbox.ownerFSM = this;
+            simpleHitbox.damage = Mathf.RoundToInt(attackDamage);
+            simpleHitbox.SetActive(false); // apagado al inicio
+        }
     }
 
     void Start()
@@ -188,6 +222,7 @@ public class EnemyFSM : MonoBehaviour
         }
 
         currentState = EnemyState.Idle;
+        _prevState = currentState; // para detección de cambios
         Invoke(nameof(StartPatrolling), 0.75f);
 
         lastPos = transform.position;
@@ -196,6 +231,38 @@ public class EnemyFSM : MonoBehaviour
         lastSeenTimer = 0f;
 
         UpdateLoopByLogical("Idle");
+
+        // --- cache de materiales para scare flash ---
+        if (scareFlashEnabled)
+        {
+            if (scareRenderers == null || scareRenderers.Length == 0)
+                scareRenderers = GetComponentsInChildren<Renderer>(true);
+
+            _scareMatCache.Clear();
+            foreach (var r in scareRenderers)
+            {
+                if (!r) continue;
+                foreach (var m in r.materials) // instancia por renderer (seguro)
+                {
+                    if (!m) continue;
+                    var cache = new MatCache { mat = m };
+
+                    if (m.HasProperty("_Color"))
+                    {
+                        cache.hasColor = true;
+                        cache.baseColor = m.GetColor("_Color");
+                    }
+                    if (m.HasProperty("_EmissionColor"))
+                    {
+                        cache.hasEmission = true;
+                        cache.baseEmission = m.IsKeywordEnabled("_EMISSION")
+                            ? m.GetColor("_EmissionColor")
+                            : Color.black;
+                    }
+                    _scareMatCache.Add(cache);
+                }
+            }
+        }
     }
 
     void LateUpdate()
@@ -234,6 +301,18 @@ public class EnemyFSM : MonoBehaviour
         {
             RecoverFromStuck();
             stuckTimer = 0f;
+        }
+
+        // ===== Encender/apagar hitbox según cambios de estado =====
+        if (useSimpleDamageBox && simpleHitbox)
+        {
+            if (_prevState != currentState)
+            {
+                bool on = (currentState == EnemyState.Attack) && (Time.time >= attackSuppressedUntil);
+                simpleHitbox.damage = Mathf.RoundToInt(attackDamage); // sincroniza por si cambió
+                simpleHitbox.SetActive(on);
+                _prevState = currentState;
+            }
         }
     }
 
@@ -290,7 +369,6 @@ public class EnemyFSM : MonoBehaviour
             else
             {
                 currentState = EnemyState.Patrol;
-                GoToRandomPatrolPoint();
                 return;
             }
 
@@ -322,9 +400,11 @@ public class EnemyFSM : MonoBehaviour
             return;
         }
 
-        // Si el ataque está suprimido por luz, retrocede y NO hace daño
+        // Si el ataque está suprimido por luz, retrocede y NO hace daño.
         if (Time.time < attackSuppressedUntil)
         {
+            if (useSimpleDamageBox && simpleHitbox && simpleHitbox.active) simpleHitbox.SetActive(false);
+
             Vector3 away = (transform.position - player.position);
             away.y = 0f;
             if (away.sqrMagnitude > 0.0001f)
@@ -343,6 +423,7 @@ public class EnemyFSM : MonoBehaviour
             return;
         }
 
+        // acercamiento suave
         Vector3 dir = (player.position - transform.position);
         dir.y = 0f;
         if (dir.sqrMagnitude > 0.0001f)
@@ -356,12 +437,15 @@ public class EnemyFSM : MonoBehaviour
 
         FaceTarget(player.position, 1f);
 
-        // Solo daña si NO está suprimido
-        if (Time.time >= lastAttackTime + attackCooldown && Time.time >= attackSuppressedUntil)
+        // Si NO usamos hitbox simple, aplica daño por cooldown
+        if (!useSimpleDamageBox)
         {
-            var hp = player.GetComponent<PlayerHealth>();
-            if (hp != null) hp.TakeDamage(attackDamage);
-            lastAttackTime = Time.time;
+            if (Time.time >= lastAttackTime + attackCooldown && Time.time >= attackSuppressedUntil)
+            {
+                var hp = player.GetComponent<PlayerHealth>();
+                if (hp != null) hp.TakeDamage(attackDamage);
+                lastAttackTime = Time.time;
+            }
         }
 
         if (Vector3.Distance(transform.position, player.position) > attackRange)
@@ -659,16 +743,16 @@ public class EnemyFSM : MonoBehaviour
         recalcTimer = recalculatePathInterval;
     }
 
-    // ======= NUEVO: impacto directo de luz =======
+    // ======= impacto directo de luz =======
     public void OnLightImpact(Vector3 lightOrigin, Vector3 lightForward, BatteryType battery, PlayerLightController.FlashlightUIMode mode)
     {
         // 1) Suprimir ataque
         attackSuppressedUntil = Time.time + Mathf.Max(0.05f, suppressAttackSeconds);
 
-        // 2) Calcular dirección de huida opuesta a la luz
+        // 2) Dirección opuesta a la luz
         Vector3 away = (transform.position - lightOrigin);
         away.y = 0f;
-        if (away.sqrMagnitude < 0.0001f) away = -lightForward; // fallback: opuesto al forward de la luz
+        if (away.sqrMagnitude < 0.0001f) away = -lightForward;
         away = away.normalized;
 
         Vector3 immediateTarget = transform.position + away * Mathf.Max(1f, immediateRetreatDistance);
@@ -678,11 +762,11 @@ public class EnemyFSM : MonoBehaviour
             immediateTarget = map.CellCenterToWorld(c, floorIndex);
         }
 
-        // Recalcular un path corto para escapar YA
+        // Path corto de escape inmediato
         RecalcPathTo(immediateTarget);
         deflectUntil = Time.time + Mathf.Max(0.1f, deflectDuration);
 
-        // 3) Si coincide la combinación, pasar a Flee con destino lejano
+        // 3) Si cumple combinación, entrar a Flee + feedback visual
         if (ShouldScareNow(battery, mode) && Time.time >= scareLockUntil)
         {
             // Knockback suave
@@ -696,6 +780,14 @@ public class EnemyFSM : MonoBehaviour
                 ChooseFleeDestination();
             }
 
+            // ---- FLASH DE COLOR SEGÚN BATERÍA ----
+            if (scareFlashEnabled)
+            {
+                Color flash = ColorForBattery(battery);
+                if (_scareFlashCo != null) StopCoroutine(_scareFlashCo);
+                _scareFlashCo = StartCoroutine(CoScareFlash(flash));
+            }
+
             scareLockUntil = Time.time + 1.0f; // evita re-espantos inmediatos
             lastAttackTime = Time.time + Mathf.Max(0.2f, attackCooldown * 0.5f);
 
@@ -706,6 +798,9 @@ public class EnemyFSM : MonoBehaviour
             // Si estaba atacando, forzar transición fuera del ataque
             if (currentState == EnemyState.Attack)
                 currentState = EnemyState.Chase;
+
+            // Feedback opcional también cuando solo se suprime (no entra a Flee)
+            // if (scareFlashEnabled) { ... }  // Si quisieras, puedes habilitar un flash corto aquí también.
         }
     }
 
@@ -742,12 +837,10 @@ public class EnemyFSM : MonoBehaviour
         foreach (var cell in free)
         {
             Vector3 pos = MultiFloorDynamicMapManager.Instance.CellCenterToWorld(cell, floorIndex);
-            // Puntúa en contra del jugador (más lejos, mejor)
             float d = Vector3.Distance(pos, player.position);
-            // Bonus si pos está aproximadamente en la dirección opuesta al jugador
             Vector3 away = (pos - transform.position).normalized;
             Vector3 toPlayer = (player.position - transform.position).normalized;
-            float oppositeBonus = Vector3.Dot(away, -toPlayer); // 1 si exactamente opuesto
+            float oppositeBonus = Vector3.Dot(away, -toPlayer);
             float score = d + oppositeBonus * 3f;
             if (score > maxScore) { maxScore = score; farthest = cell; }
         }
@@ -756,7 +849,7 @@ public class EnemyFSM : MonoBehaviour
         RecalcPathTo(fleePos);
     }
 
-    // ================== SENSING / helpers (igual que antes) ==================
+    // ================== SENSING / helpers ==================
 
     bool UpdatePlayerSensing()
     {
@@ -932,5 +1025,72 @@ public class EnemyFSM : MonoBehaviour
             Gizmos.DrawSphere(currentPath[i], 0.08f);
             if (i + 1 < currentPath.Count) Gizmos.DrawLine(currentPath[i + 1], currentPath[i]);
         }
+    }
+
+    // ===== Helpers: Color por batería + Flash =====
+    private static Color ColorForBattery(BatteryType battery)
+    {
+        switch (battery)
+        {
+            case BatteryType.Green: return new Color(0.2f, 1f, 0.2f);
+            case BatteryType.Red: return new Color(1f, 0.2f, 0.2f);
+            case BatteryType.Blue: return new Color(0.3f, 0.5f, 1.2f);
+            default: return Color.white;
+        }
+    }
+
+    private IEnumerator CoScareFlash(Color flashColor)
+    {
+        if (_scareMatCache.Count == 0) yield break;
+
+        float t = 0f;
+        while (t < scareFlashDuration)
+        {
+            float x = t / Mathf.Max(0.0001f, scareFlashDuration);
+            float k = Mathf.Sin(x * Mathf.PI); // 0→1→0
+
+            for (int i = 0; i < _scareMatCache.Count; i++)
+            {
+                var c = _scareMatCache[i];
+                if (!c.mat) continue;
+
+                if (scareAffectBaseColor && c.hasColor)
+                {
+                    Color target = Color.Lerp(c.baseColor, flashColor, k);
+                    c.mat.SetColor("_Color", target);
+                }
+
+                if (scareAffectEmission && c.hasEmission && c.mat.HasProperty("_EmissionColor"))
+                {
+                    c.mat.EnableKeyword("_EMISSION");
+                    Color emissionTarget = flashColor * (k * scareEmissionIntensity);
+                    c.mat.SetColor("_EmissionColor", emissionTarget);
+                }
+            }
+
+            t += Time.deltaTime;
+            yield return null;
+        }
+
+        // restaurar
+        for (int i = 0; i < _scareMatCache.Count; i++)
+        {
+            var c = _scareMatCache[i];
+            if (!c.mat) continue;
+
+            if (scareAffectBaseColor && c.hasColor)
+                c.mat.SetColor("_Color", c.baseColor);
+
+            if (scareAffectEmission && c.hasEmission && c.mat.HasProperty("_EmissionColor"))
+            {
+                c.mat.SetColor("_EmissionColor", c.baseEmission);
+                if (c.baseEmission.maxColorComponent <= 0.0001f)
+                    c.mat.DisableKeyword("_EMISSION");
+                else
+                    c.mat.EnableKeyword("_EMISSION");
+            }
+        }
+
+        _scareFlashCo = null;
     }
 }

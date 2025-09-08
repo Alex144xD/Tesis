@@ -814,6 +814,9 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls: []
   pauseKey: 27
+  pauseEnabledScenes:
+  - Game
+  - Tutorial
 --- !u!4 &218356346
 Transform:
   m_ObjectHideFlags: 0
@@ -991,10 +994,11 @@ MonoBehaviour:
   bellVolume: 0.9
   progressiveEnemyWaves: 1
   spawnEnemiesAtStart: 0
-  enemyWave1Prefabs:
+  enemyType1Prefabs:
   - {fileID: 3595625012628118935, guid: b4dbbd5c206d23a4db638565a734224d, type: 3}
-  enemyWave2Prefabs: []
-  enemyWave3Prefabs: []
+  enemyType2Prefabs: []
+  enemyType3Prefabs: []
+  limitEnemiesToOneToThree: 1
 --- !u!1 &268820506
 GameObject:
   m_ObjectHideFlags: 0
@@ -1163,7 +1167,7 @@ MonoBehaviour:
   rootHUD: {fileID: 720838874}
   totalFragments: 9
   minAlpha: 0.2
-  maxAlpha: 1
+  maxAlpha: 0.5
 --- !u!114 &274636082
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5828,7 +5832,6 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1414456308}
-  - component: {fileID: 1414456307}
   m_Layer: 0
   m_Name: GameObject (2)
   m_TagString: Untagged
@@ -5836,45 +5839,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1414456307
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1414456306}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 9a76011be60cfdd42b6d4bcd8d46646a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  gameplayScenes:
-  - Game
-  - Tutorial
-  hudName: GameplayHUD
-  hudTag: GameplayHUD
-  sortingOrder: 790
-  makeHudNonBlocking: 1
-  forceAlphaOne: 1
-  normalizeTimeScale: 1
-  resetLifeOverlays: 1
-  overlayNameHints:
-  - Life
-  - Health
-  - Blood
-  - Damage
-  - Vignette
-  - Hurt
-  - LowHealth
-  - Hit
-  overlayTags:
-  - HUDOverlay
-  - LifeOverlay
-  overlaySetCanvasGroupAlphaZero: 1
-  overlaySetGraphicsAlphaZero: 1
-  overlayDisableRaycasts: 1
-  overlayResetAnimators: 1
-  debugLogs: 1
 --- !u!4 &1414456308
 Transform:
   m_ObjectHideFlags: 0
@@ -6043,7 +6007,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &1464950380
 RectTransform:
   m_ObjectHideFlags: 0
@@ -6076,7 +6040,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
-  m_Color: {r: 0.5320754, g: 0.5320754, b: 0.5320754, a: 0.75686276}
+  m_Color: {r: 0.5320754, g: 0.5320754, b: 0.5320754, a: 0.1254902}
   m_RaycastTarget: 1
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
@@ -7612,8 +7576,8 @@ MonoBehaviour:
       m_Calls: []
   m_text: New Text
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
-  m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
+  m_fontAsset: {fileID: 11400000, guid: 6484f115a64b4f74aab3f50ad1b0d9a2, type: 2}
+  m_sharedMaterial: {fileID: -4858587148013177638, guid: 6484f115a64b4f74aab3f50ad1b0d9a2, type: 2}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
   m_fontMaterials: []
