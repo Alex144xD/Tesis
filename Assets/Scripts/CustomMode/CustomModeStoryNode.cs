@@ -42,7 +42,7 @@ public class CustomModeStoryNode : ScriptableObject
         if (!string.IsNullOrEmpty(narrative))
             narrative = narrative.Trim();
 
-        // Compat: si backgroundSprite está y la lista está vacía, lo agregamos como primera capa.
+
         if (backgroundSprite && (backgroundSprites == null || backgroundSprites.Count == 0))
         {
             if (backgroundSprites == null) backgroundSprites = new List<Sprite>();
@@ -58,13 +58,13 @@ public class CustomModeStoryNode : ScriptableObject
             var opt = options[i];
             if (opt == null) continue;
 
-            // Trim texto
+  
             if (!string.IsNullOrEmpty(opt.text))
                 opt.text = opt.text.Trim();
 
             if (opt.next) anyNext = true;
 
-            // Avisos comunes
+
             if (opt.next == this)
             {
                 Debug.LogWarning($"[StoryNode] En '{name}' la opción #{i} apunta a SÍ MISMA (bucle). Revísalo.", this);

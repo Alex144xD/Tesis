@@ -8,7 +8,7 @@ public class EnemyFSM : MonoBehaviour
     public enum EnemyState { Idle, Patrol, Chase, Attack, Flee }
     public enum EnemyKind { Basic, Heavy, Runner }
 
-    // ===== API pública =====
+
     public EnemyState CurrentState => currentState;
 
     [Header("Tipo de enemigo")]
@@ -54,7 +54,7 @@ public class EnemyFSM : MonoBehaviour
 
     [Header("Daño")]
     public float attackDamage = 10f;
-    public float attackCooldown = 1f; // usado solo si no se usa hitbox simple
+    public float attackCooldown = 1f;
 
     [Header("Hitbox simple (sin layers / sin animator)")]
     public bool useSimpleDamageBox = true;
@@ -202,12 +202,11 @@ public class EnemyFSM : MonoBehaviour
 
         myId = GetInstanceID();
 
-        // ===== Inicializa el hitbox simple =====
         if (simpleHitbox)
         {
             if (!simpleHitbox.ownerFSM) simpleHitbox.ownerFSM = this;
             simpleHitbox.damage = Mathf.RoundToInt(attackDamage);
-            simpleHitbox.SetActive(false); // apagado al inicio
+            simpleHitbox.SetActive(false);
         }
     }
 
@@ -222,7 +221,7 @@ public class EnemyFSM : MonoBehaviour
         }
 
         currentState = EnemyState.Idle;
-        _prevState = currentState; // para detección de cambios
+        _prevState = currentState; 
         Invoke(nameof(StartPatrolling), 0.75f);
 
         lastPos = transform.position;
@@ -232,7 +231,7 @@ public class EnemyFSM : MonoBehaviour
 
         UpdateLoopByLogical("Idle");
 
-        // --- cache de materiales para scare flash ---
+
         if (scareFlashEnabled)
         {
             if (scareRenderers == null || scareRenderers.Length == 0)
@@ -242,7 +241,7 @@ public class EnemyFSM : MonoBehaviour
             foreach (var r in scareRenderers)
             {
                 if (!r) continue;
-                foreach (var m in r.materials) // instancia por renderer (seguro)
+                foreach (var m in r.materials) 
                 {
                     if (!m) continue;
                     var cache = new MatCache { mat = m };
@@ -303,20 +302,19 @@ public class EnemyFSM : MonoBehaviour
             stuckTimer = 0f;
         }
 
-        // ===== Encender/apagar hitbox según cambios de estado =====
+
         if (useSimpleDamageBox && simpleHitbox)
         {
             if (_prevState != currentState)
             {
                 bool on = (currentState == EnemyState.Attack) && (Time.time >= attackSuppressedUntil);
-                simpleHitbox.damage = Mathf.RoundToInt(attackDamage); // sincroniza por si cambió
+                simpleHitbox.damage = Mathf.RoundToInt(attackDamage); 
                 simpleHitbox.SetActive(on);
                 _prevState = currentState;
             }
         }
     }
 
-    // ================== ESTADOS ==================
 
     void StateIdle()
     {
@@ -349,10 +347,9 @@ public class EnemyFSM : MonoBehaviour
     {
         SetAnimation("Run");
 
-        // Si está desviado por luz, sigue el punto de escape inmediato
         if (Time.time < deflectUntil)
         {
-            // path ya recalculado en OnLightImpact
+       
         }
         else
         {
@@ -400,7 +397,7 @@ public class EnemyFSM : MonoBehaviour
             return;
         }
 
-        // Si el ataque está suprimido por luz, retrocede y NO hace daño.
+  
         if (Time.time < attackSuppressedUntil)
         {
             if (useSimpleDamageBox && simpleHitbox && simpleHitbox.active) simpleHitbox.SetActive(false);
@@ -423,7 +420,7 @@ public class EnemyFSM : MonoBehaviour
             return;
         }
 
-        // acercamiento suave
+
         Vector3 dir = (player.position - transform.position);
         dir.y = 0f;
         if (dir.sqrMagnitude > 0.0001f)
@@ -437,7 +434,7 @@ public class EnemyFSM : MonoBehaviour
 
         FaceTarget(player.position, 1f);
 
-        // Si NO usamos hitbox simple, aplica daño por cooldown
+
         if (!useSimpleDamageBox)
         {
             if (Time.time >= lastAttackTime + attackCooldown && Time.time >= attackSuppressedUntil)
@@ -473,7 +470,6 @@ public class EnemyFSM : MonoBehaviour
         }
     }
 
-    // ================== MOVIMIENTO / PATH ==================
 
     void MoveAlongPath(float speed)
     {
@@ -572,7 +568,6 @@ public class EnemyFSM : MonoBehaviour
         }
     }
 
-    // ================== SLIDE + GRAVEDAD ==================
 
     void SlideMove(Vector3 horizVelocity)
     {
@@ -601,7 +596,7 @@ public class EnemyFSM : MonoBehaviour
         }
     }
 
-    // ================== SEPARACIÓN / NUDGE ==================
+
 
     Vector3 ComputeSeparationLimited()
     {
@@ -669,7 +664,7 @@ public class EnemyFSM : MonoBehaviour
         return nudge;
     }
 
-    // ================== MAPA / LINTERNAS ==================
+
 
     private void OnMapChanged()
     {
@@ -743,7 +738,7 @@ public class EnemyFSM : MonoBehaviour
         recalcTimer = recalculatePathInterval;
     }
 
-    // ======= impacto directo de luz =======
+
     public void OnLightImpact(Vector3 lightOrigin, Vector3 lightForward, BatteryType battery, PlayerLightController.FlashlightUIMode mode)
     {
         // 1) Suprimir ataque
@@ -762,11 +757,10 @@ public class EnemyFSM : MonoBehaviour
             immediateTarget = map.CellCenterToWorld(c, floorIndex);
         }
 
-        // Path corto de escape inmediato
+
         RecalcPathTo(immediateTarget);
         deflectUntil = Time.time + Mathf.Max(0.1f, deflectDuration);
 
-        // 3) Si cumple combinación, entrar a Flee + feedback visual
         if (ShouldScareNow(battery, mode) && Time.time >= scareLockUntil)
         {
             // Knockback suave
@@ -780,7 +774,6 @@ public class EnemyFSM : MonoBehaviour
                 ChooseFleeDestination();
             }
 
-            // ---- FLASH DE COLOR SEGÚN BATERÍA ----
             if (scareFlashEnabled)
             {
                 Color flash = ColorForBattery(battery);
@@ -788,19 +781,16 @@ public class EnemyFSM : MonoBehaviour
                 _scareFlashCo = StartCoroutine(CoScareFlash(flash));
             }
 
-            scareLockUntil = Time.time + 1.0f; // evita re-espantos inmediatos
+            scareLockUntil = Time.time + 1.0f; 
             lastAttackTime = Time.time + Mathf.Max(0.2f, attackCooldown * 0.5f);
 
             if (debugScareLogs) Debug.Log($"[{name}] FLEE by light (battery={battery}, mode={mode})");
         }
         else
         {
-            // Si estaba atacando, forzar transición fuera del ataque
             if (currentState == EnemyState.Attack)
                 currentState = EnemyState.Chase;
 
-            // Feedback opcional también cuando solo se suprime (no entra a Flee)
-            // if (scareFlashEnabled) { ... }  // Si quisieras, puedes habilitar un flash corto aquí también.
         }
     }
 
@@ -808,16 +798,16 @@ public class EnemyFSM : MonoBehaviour
     {
         switch (kind)
         {
-            case EnemyKind.Basic: // Enemigo 1: verde con LOW o HIGH
+            case EnemyKind.Basic: 
                 return battery == BatteryType.Green &&
                        (mode == PlayerLightController.FlashlightUIMode.Low ||
                         mode == PlayerLightController.FlashlightUIMode.High);
 
-            case EnemyKind.Heavy: // Enemigo 2: rojo solo HIGH
+            case EnemyKind.Heavy: 
                 return battery == BatteryType.Red &&
                        mode == PlayerLightController.FlashlightUIMode.High;
 
-            case EnemyKind.Runner: // Enemigo 3: azul solo LOW
+            case EnemyKind.Runner: 
                 return battery == BatteryType.Blue &&
                        mode == PlayerLightController.FlashlightUIMode.Low;
         }
@@ -849,7 +839,7 @@ public class EnemyFSM : MonoBehaviour
         RecalcPathTo(fleePos);
     }
 
-    // ================== SENSING / helpers ==================
+ 
 
     bool UpdatePlayerSensing()
     {
@@ -938,7 +928,7 @@ public class EnemyFSM : MonoBehaviour
             transform.rotation = Quaternion.RotateTowards(transform.rotation, look, deg);
     }
 
-    // ================== AUDIO / ANIM ==================
+
     void SetAnimation(string state)
     {
         if (!animator || !useCrossfadeFallback) return;
@@ -1027,7 +1017,7 @@ public class EnemyFSM : MonoBehaviour
         }
     }
 
-    // ===== Helpers: Color por batería + Flash =====
+
     private static Color ColorForBattery(BatteryType battery)
     {
         switch (battery)

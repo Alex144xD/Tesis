@@ -49,7 +49,7 @@ public class GameManager : MonoBehaviour
 
     void Update()
     {
-        // Evita pausar si ya terminó la partida y restringe a escenas permitidas
+
         if (Input.GetKeyDown(pauseKey) && !isGameOver && !isVictory && IsPauseAllowedInCurrentScene())
         {
             if (!isPaused) PauseGame();
@@ -103,13 +103,13 @@ public class GameManager : MonoBehaviour
 
     public void RestartGame()
     {
-        // Estado limpio antes del reload
+       
         Time.timeScale = 1f;
         isPaused = false;
         isGameOver = false;
         isVictory = false;
 
-        // Apagar paneles ANTES de cargar la escena
+       
         if (UIManager.Instance) UIManager.Instance.PreSceneChangeCleanup();
 
         onGameRestart?.Invoke();
@@ -132,7 +132,7 @@ public class GameManager : MonoBehaviour
     {
         inCustomMode = true;
 
-        // Estado consistente para gameplay
+      
         isPaused = false;
         isGameOver = false;
         isVictory = false;
@@ -156,12 +156,12 @@ public class GameManager : MonoBehaviour
 
     void OnSceneLoaded_Reset(Scene s, LoadSceneMode mode)
     {
-        // Si acabamos de ganar/perder, respeta el freeze de sus pantallas
+       
         if (!isVictory && !isGameOver)
         {
             if (inCustomMode)
             {
-                // En Custom Mode siempre arrancamos "jugando"
+               
                 isPaused = false;
                 Time.timeScale = 1f;
                 ShowCursor(false);
@@ -180,7 +180,7 @@ public class GameManager : MonoBehaviour
     bool IsPauseAllowedInCurrentScene()
     {
         var s = SceneManager.GetActiveScene().name;
-        if (pauseEnabledScenes == null || pauseEnabledScenes.Length == 0) return true; // por si lo quieres global
+        if (pauseEnabledScenes == null || pauseEnabledScenes.Length == 0) return true; 
         for (int i = 0; i < pauseEnabledScenes.Length; i++)
         {
             var name = pauseEnabledScenes[i];

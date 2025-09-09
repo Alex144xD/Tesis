@@ -7,7 +7,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 {
     public static MultiFloorDynamicMapManager Instance;
 
-    // ================= CONFIG BÁSICA =================
+  
     [Header("Mapa")]
     public int width = 21;
     public int height = 21;
@@ -23,13 +23,13 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     [Header("Prefabs (Maze)")]
     public GameObject floorPrefab;
     public GameObject wallPrefab;
-    public GameObject wallTorchPrefab; // decorativa
+    public GameObject wallTorchPrefab; 
 
     [Header("Prefabs (Entidades)")]
     public List<GameObject> batteryPrefabs;
     public GameObject soulFragmentPrefab;
 
-    // Fallback genérico (se usa sólo si los tipos E1/E2/E3 no están asignados)
+   
     public List<GameObject> enemyPrefabs;
 
     [Header("Jugador")]
@@ -39,10 +39,10 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
     [Header("Auto-scaling entities")]
     public bool autoScaleByMapSize = true;
-    [Range(0f, 0.05f)] public float enemyDensity = 0.0075f;   // ignorado por oleadas
+    [Range(0f, 0.05f)] public float enemyDensity = 0.0075f;   
     [Range(0f, 0.05f)] public float batteryDensity = 0.0060f;
-    [Range(0f, 0.02f)] public float fragmentDensity = 0.0f; // no usado en secuencial
-    public int minEnemies = 2, maxEnemies = 25;              // ignorado por oleadas
+    [Range(0f, 0.02f)] public float fragmentDensity = 0.0f; 
+    public int minEnemies = 2, maxEnemies = 25;              
     public int minBatteries = 1, maxBatteries = 20;
 
     [Header("Dinámica")]
@@ -50,16 +50,16 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     public int safeRadiusCells = 5;
 
     [Header("Colocación de pickups")]
-    public bool oneFragmentPerFloor = true; // legacy
+    public bool oneFragmentPerFloor = true; 
     public float pickupLiftEpsilon = 0.02f;
 
-    // ================= FRAGMENTOS SECUENCIALES =================
+
     [Header("Fragmentos Secuenciales")]
     public bool useSequentialFragments = true;
     [Min(1)] public int targetFragments = 5;
     public int fragmentsCollected = 0;
 
-    // Compat: variables antiguas (si algo externo las lee)
+
     [Min(6)] public int fragmentMinRing = 8;
     [Min(6)] public int fragmentMaxRing = 18;
 
@@ -67,32 +67,31 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     public int decorativeTorchesNearPath = 3;
     public int torchPathSkip = 5;
 
-    // ================= FX (SOLO CAMPANA) =================
     [Header("Cambio de Mapa (sonido)")]
     public AudioClip bellClip;
     [Range(0f, 1f)] public float bellVolume = 0.9f;
 
-    // ================= OLEADAS (RÁPIDO/ARCADE) =================
+   
     [Header("Oleadas Progresivas (por campana)")]
     public bool progressiveEnemyWaves = true;
     [Tooltip("Si usas oleadas, deja esto en false para empezar sin enemigos.")]
     public bool spawnEnemiesAtStart = false;
 
     [Header("Prefabs por tipo de enemigo (asignar en Inspector)")]
-    public List<GameObject> enemyType1Prefabs; // Enemigo 1 (normal)
-    public List<GameObject> enemyType2Prefabs; // Enemigo 2 (grande/lento)
-    public List<GameObject> enemyType3Prefabs; // Enemigo 3 (rápido)
+    public List<GameObject> enemyType1Prefabs; 
+    public List<GameObject> enemyType2Prefabs; 
+    public List<GameObject> enemyType3Prefabs; 
 
     [Tooltip("Forzar límite de 1 a 3 enemigos en cualquier spawn/oleada.")]
     public bool limitEnemiesToOneToThree = true;
 
-    private int regenCount = 0; // cuántas regeneraciones/campanas van
-    private List<GameObject>[] spawnedEnemies; // referencia directa a enemigos por piso
+    private int regenCount = 0; 
+    private List<GameObject>[] spawnedEnemies; 
 
-    // ================= INTERNOS =================
+   
     private AudioSource sfx;
 
-    // 0: pasillo, 1: muro
+ 
     private int[,,] maze;
     private bool[,,] walkableGrid;
     private GameObject[,,] wallObjects;
@@ -105,7 +104,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     private float regenTimer;
     private int currentFloor = -1;
 
-    // Anclas A (jugador) y B (fragmento activo)
+   
     private Vector2Int anchorA;
     private Vector2Int anchorB;
     private bool hasActiveFragment = false;
@@ -150,7 +149,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             SpawnTorchWallsOnFloor(f, false);
             RespawnPickupsOnFloor(f, placeFragment: !useSequentialFragments);
 
-            // Oleadas: si están activas, NO spawnear enemigos al inicio salvo se fuerce.
+          
             if (!progressiveEnemyWaves || spawnEnemiesAtStart)
                 SpawnEnemiesOnFloor(f);
         }
@@ -162,10 +161,10 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             BeginRun();
         }
 
-        // Si quieres que ya arranque en Oleada 1 sin esperar campana:
+
         if (progressiveEnemyWaves && spawnEnemiesAtStart)
         {
-            regenCount = 1; // primera oleada
+            regenCount = 1; 
             HandleWaveAfterBell();
         }
     }
@@ -176,7 +175,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         if (regenTimer >= regenerationInterval)
         {
             regenTimer = 0f;
-            // Modo rápido/arcade: sin fades, solo campana + oleadas
+      
             PartialRegenerate();
         }
 
@@ -184,7 +183,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         if (pf != currentFloor) ChangeFloor(pf);
     }
 
-    // ======= APIS QUE TE FALTABAN =======
+
     public void SetTargetFragments(int n)
     {
         targetFragments = Mathf.Max(1, n);
@@ -199,9 +198,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         fragmentMinRing = Mathf.Max(1, fragMinRing);
         fragmentMaxRing = Mathf.Max(fragmentMinRing, fragMaxRing);
     }
-    // ====================================
-
-    // ==================== API PÚBLICA ====================
+   
     public void BeginRun()
     {
         int f = 0;
@@ -238,7 +235,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
     {
         if (!useSequentialFragments) return;
 
-        // BRÚJULA: desmarcar primario del anterior por seguridad
+      
         if (activeFragmentGO)
         {
             var prevCt = activeFragmentGO.GetComponent<CompassTarget>();
@@ -291,7 +288,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             SpawnTorchWallsOnFloor(f, false);
             RespawnPickupsOnFloor(f, placeFragment: (!useSequentialFragments));
 
-            // Silencio inicial si hay oleadas
             if (!progressiveEnemyWaves || spawnEnemiesAtStart)
                 SpawnEnemiesOnFloor(f);
         }
@@ -313,7 +309,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         OnMapUpdated?.Invoke();
     }
 
-    // ==================== NÚCLEO DE MAZE / CELDAS ====================
+
     void AllocGrids(int w, int h, int floorsCount)
     {
         maze = new int[floorsCount, w, h];
@@ -444,7 +440,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         }
     }
 
-    // ==================== REGENERACIÓN (instantánea) ====================
     void PartialRegenerate()
     {
         int f = 0;
@@ -505,10 +500,10 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
         OnMapUpdated?.Invoke();
 
-        // ==== Sonido de campana al regenerar (modo rápido) ====
+   
         if (sfx && bellClip) sfx.PlayOneShot(bellClip, bellVolume);
 
-        // ==== Oleadas ====
+  
         if (progressiveEnemyWaves)
         {
             regenCount = Mathf.Clamp(regenCount + 1, 0, int.MaxValue);
@@ -641,7 +636,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         return (cur == b) ? path : null;
     }
 
-    // ==================== ANTORCHAS DECORATIVAS ====================
     void DecoratePathToGoal(int floor, Vector2Int a, Vector2Int b, List<Vector2Int> knownPath = null)
     {
         ClearDecorativeTorches(floor);
@@ -690,7 +684,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         return false;
     }
 
-    // ==================== FRAGMENTO ACTIVO ====================
+
     Vector2Int ChooseGoalCellOppositeSide(int floor, Vector2Int a)
     {
         Vector2 mid = new Vector2((width - 1) * 0.5f, (height - 1) * 0.5f);
@@ -782,9 +776,9 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         spawnedEntities[0].Add(go);
     }
 
-    int EstimatePlayerBatteryCount() => 0; // enlázalo a tu inventario si quieres
+    int EstimatePlayerBatteryCount() => 0; 
 
-    // ==================== ENEMIGOS / PICKUPS ====================
+    
     void RespawnPickupsOnFloor(int f, bool placeFragment)
     {
         if (spawnedEntities[f] == null) spawnedEntities[f] = new List<GameObject>();
@@ -815,13 +809,13 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
             SnapToFloorByRendererHeight(go.transform, f);
             spawnedEntities[f].Add(go);
 
-            // BRÚJULA: fragmento legacy (no activo) NO debe ser primario
+       
             var ct = go.GetComponent<CompassTarget>() ?? go.AddComponent<CompassTarget>();
             ct.isPrimary = false;
         }
     }
 
-    // Spawn libre (sólo si no usas oleadas, o si fuerzas spawn al inicio)
+   
     void SpawnEnemiesOnFloor(int f)
     {
         if (progressiveEnemyWaves && !spawnEnemiesAtStart) return;
@@ -1024,7 +1018,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         currentFloor = Mathf.Clamp(newFloor, 0, floors - 1);
     }
 
-    // ==================== SPAWN A (JUGADOR): helpers ====================
     Vector2Int ChooseStartCellNearEdge(int floor)
     {
         var free = GetFreeCells(floor);
@@ -1151,7 +1144,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         }
     }
 
-    // ==================== OLEADAS ====================
     enum EnemyType { E1, E2, E3 }
 
     List<GameObject> PickFromType(EnemyType t)
@@ -1167,19 +1159,11 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         return new List<GameObject> { pool[UnityEngine.Random.Range(0, pool.Count)] };
     }
 
-    // Devuelve la COMPOSICIÓN EXACTA (lista de prefabs) para la oleada N (1..9). Luego repite.
+
     List<GameObject> BuildWavePrefabsFor(int waveIndex1to9)
     {
         int w = Mathf.Clamp(waveIndex1to9, 1, 9);
-        // 1) E1
-        // 2) E2
-        // 3) E3
-        // 4) E2 + E1
-        // 5) E3 + E1
-        // 6) E3 + E2
-        // 7) E1 + E2 + E3
-        // 8) E2 + E3 + E1
-        // 9) E3 + E1 + E2
+   
         EnemyType[][] pattern = new EnemyType[][]
         {
             new []{ EnemyType.E1 },
@@ -1203,11 +1187,9 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
                 result.Add(picked[0]);
         }
 
-        // Fallback si quedó vacío
         if (result.Count == 0 && enemyPrefabs != null && enemyPrefabs.Count > 0)
             result.Add(enemyPrefabs[UnityEngine.Random.Range(0, enemyPrefabs.Count)]);
 
-        // Límite 1..3 por seguridad
         if (limitEnemiesToOneToThree)
             result = result.GetRange(0, Mathf.Clamp(result.Count, 1, 3));
 
@@ -1221,7 +1203,6 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
         spawnedEnemies[f].Clear();
     }
 
-    // Oleada con lista exacta de prefabs (capada a 1..3)
     void SpawnEnemiesWaveOnFloor(int f, List<GameObject> exactPrefabsToSpawn)
     {
         if (exactPrefabsToSpawn == null || exactPrefabsToSpawn.Count == 0) return;
@@ -1253,8 +1234,7 @@ public class MultiFloorDynamicMapManager : MonoBehaviour
 
     void HandleWaveAfterBell()
     {
-        int f = 0; // piso único
-        // regenCount empieza en 1 para la primera campana => waveIndex = 1..9 y luego loop
+        int f = 0; 
         int waveIndex = ((regenCount - 1) % 9) + 1;
 
         var exactPrefabs = BuildWavePrefabsFor(waveIndex);

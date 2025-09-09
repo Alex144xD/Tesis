@@ -47,16 +47,16 @@ public class BatteryHUD : MonoBehaviour
     public bool debugLogs = false;
     public bool preferFlashlightWhenBoth = true;
 
-    // ===== Runtime =====
+
     float currentFill = 1f;
     float targetFill = 1f;
 
-    // Suscripción a eventos (si PlayerBatterySystem mejorado está presente)
+  
     bool _hasEvents;
     float _lastEventCur, _lastEventMax;
     BatteryType _lastEventType;
 
-    // Rebind watchdog (p.ej. al cargar escena)
+
     float _rebindCooldown = 0f;
     const float REBIND_INTERVAL = 1.0f;
 
@@ -116,7 +116,7 @@ public class BatteryHUD : MonoBehaviour
         if (percentText) percentText.text = Mathf.RoundToInt(currentFill * 100f) + "%";
         if (secondsText) secondsText.text = FormatSecondsLeft(currentFill);
 
-        // 6) Visibilidad + fade
+
         ApplyVisibility(ComputeVisibility(currentFill));
 
         if (debugLogs)
@@ -127,7 +127,7 @@ public class BatteryHUD : MonoBehaviour
         }
     }
 
-    // ====== Eventos del BatterySystem (si existen) ======
+ 
     void SubscribeEvents()
     {
         if (!batteries) return;
@@ -140,7 +140,7 @@ public class BatteryHUD : MonoBehaviour
         }
         catch
         {
-            _hasEvents = false; // versión sin eventos
+            _hasEvents = false; 
         }
     }
 
@@ -171,7 +171,7 @@ public class BatteryHUD : MonoBehaviour
         _lastEventType = newType;
     }
 
-    // ====== Helpers ======
+ 
 
     void Rebind(bool subscribe = true)
     {
@@ -213,7 +213,7 @@ public class BatteryHUD : MonoBehaviour
     string FormatSecondsLeft(float normalized)
     {
         float drain = GetCurrentDrainPerSecondSafe();
-        if (drain <= 0.0001f) return "—"; // evita división por 0
+        if (drain <= 0.0001f) return "—"; 
 
         float maxSeconds;
         if (batteries)
@@ -277,21 +277,20 @@ public class BatteryHUD : MonoBehaviour
         }
     }
 
-    // === Drenaje actual sin usar 'drainRate' legacy ===
+
     float GetCurrentDrainPerSecondSafe()
     {
         if (flashlight == null) return 1f;
 
-        // Si el controller expone el método nuevo, úsalo (más exacto)
+
         try
         {
             float v = flashlight.GetCurrentDrainPerSecondForHUD();
             if (v > 0f) return v;
         }
-        catch { /* método no existe en alguna variante */ }
+        catch {  }
 
-        // Estimación basada en el modelo por porcentaje (sin usar drainRate)
-        // Requiere: baseDrainPercentPerSecond + low/highPercentMult + green/red/blue mults + capacidad
+
         var mode = flashlight.GetCurrentMode();
         if (mode == PlayerLightController.FlashlightUIMode.Off) return 0f;
 
@@ -316,12 +315,11 @@ public class BatteryHUD : MonoBehaviour
             ? Mathf.Max(0.0001f, batteries.GetMax(bType))
             : Mathf.Max(0.0001f, flashlight.maxBattery);
 
-        return maxCap * pctPerSec; // unidades de energía/segundo
+        return maxCap * pctPerSec; 
     }
 
     float GetBatteryNormalizedSmart()
     {
-        // Si tenemos eventos válidos, priorízalos
         if (_hasEvents && _lastEventMax > 0f)
             return Mathf.Clamp01(_lastEventCur / _lastEventMax);
 
@@ -333,11 +331,10 @@ public class BatteryHUD : MonoBehaviour
         if (tFlash < 0f && tBatt >= 0f) return tBatt;
         if (tBatt < 0f && tFlash < 0f) return 0f;
 
-        // Si ambas fuentes existen y difieren, muestra la menor (más conservador).
         if (preferFlashlightWhenBoth)
         {
             if (Mathf.Abs(tFlash - tBatt) > 0.03f) return Mathf.Min(tFlash, tBatt);
-            return tFlash; // casi iguales
+            return tFlash; 
         }
         else
         {
@@ -345,7 +342,7 @@ public class BatteryHUD : MonoBehaviour
         }
     }
 
-    // Hook opcional (mantengo tu firma)
+
     public void OnBatteryChangedUI(BatteryType type, float current, float max)
     {
         _lastEventType = type;

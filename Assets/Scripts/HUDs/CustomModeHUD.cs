@@ -9,26 +9,26 @@ using UnityEngine.Events;
 public class CustomModeHUD : MonoBehaviour
 {
     [Header("Panel")]
-    public CanvasGroup panel;                     // CanvasGroup del CustomModePanel
+    public CanvasGroup panel;                     
     public GameObject firstSelectedOnOpen;
     public float fadeDuration = 0.12f;
 
     [Header("Opciones de modo")]
-    public Slider levelsSlider;                   // número de niveles/fragmentos
+    public Slider levelsSlider;                   
     public TMP_Text levelsLabel;
     public Toggle randomSeedToggle;
-    public TMP_InputField seedInput;              // si randomSeed=false, usamos esta semilla
-    public TMP_Dropdown difficultyDropdown;       // 0=Fácil,1=Normal,2=Difícil (ejemplo)
-    public Toggle permadeathToggle;               // ejemplo de regla
-    public Toggle miniMapToggle;                  // ejemplo
-    public Toggle limitedStaminaToggle;           // ejemplo
+    public TMP_InputField seedInput;              
+    public TMP_Dropdown difficultyDropdown;       
+    public Toggle permadeathToggle;             
+    public Toggle miniMapToggle;                 
+    public Toggle limitedStaminaToggle;         
 
     [Header("Acciones")]
     public Button startButton;
     public Button backButton;
 
     [Header("Eventos")]
-    public UnityEvent<CustomModeConfig> onApplyConfig; // puedes conectar generador/manager aquí
+    public UnityEvent<CustomModeConfig> onApplyConfig; 
 
     [Header("Persistencia")]
     public bool loadOnStart = true;
@@ -93,10 +93,10 @@ public class CustomModeHUD : MonoBehaviour
     void ValidateSeed()
     {
         if (!seedInput) return;
-        // Puedes limitar a dígitos o longitud si quieres
+        
     }
 
-    // ===== Open / Close =====
+  
     public void Open()
     {
         isOpen = true;
@@ -133,13 +133,12 @@ public class CustomModeHUD : MonoBehaviour
         if (!panel.interactable) EventSystem.current.SetSelectedGameObject(null);
     }
 
-    // ===== Aplicar & Empezar =====
     public void OnStart()
     {
         var cfg = GatherConfigFromUI();
         SaveConfig(cfg);
 
-        // Marca modo personalizado en tu GameManager
+   
         if (GameManager.Instance) GameManager.Instance.StartCustomMode();
 
         // Lanza tu lógica (generador, etc.)
@@ -148,7 +147,7 @@ public class CustomModeHUD : MonoBehaviour
         if (debugLogs)
             Debug.Log($"[CustomModeHUD] START -> {cfg}");
 
-        // Cierra panel y permite que el flujo continúe desde el Pause o desde un menú
+    
         Close();
     }
 
@@ -161,7 +160,7 @@ public class CustomModeHUD : MonoBehaviour
         if (!cfg.randomSeed && seedInput && !string.IsNullOrEmpty(seedInput.text))
             cfg.seed = seedInput.text.Trim();
         else
-            cfg.seed = System.DateTime.Now.Ticks.ToString(); // semilla aleatoria
+            cfg.seed = System.DateTime.Now.Ticks.ToString(); 
 
         cfg.difficulty = difficultyDropdown ? difficultyDropdown.value : 1;
         cfg.permadeath = permadeathToggle && permadeathToggle.isOn;
@@ -171,7 +170,7 @@ public class CustomModeHUD : MonoBehaviour
         return cfg;
     }
 
-    // ===== Persistencia =====
+
     void LoadConfig(bool applyToUI)
     {
         int lvls = PlayerPrefs.GetInt(K_CM_LVLS, 3);
@@ -213,7 +212,7 @@ public class CustomModeConfig
     public int levelsOrFragments = 3;
     public bool randomSeed = true;
     public string seed = "";
-    public int difficulty = 1; // 0 Easy,1 Normal,2 Hard
+    public int difficulty = 1; 
     public bool permadeath = false;
     public bool miniMap = true;
     public bool limitedStamina = false;

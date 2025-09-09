@@ -7,7 +7,7 @@ using System.Collections.Generic;
 [DisallowMultipleComponent]
 public class CustomModeStoryPanel : MonoBehaviour
 {
-    public enum FillMode { Stretch, Fit, Cover } // NUEVO
+    public enum FillMode { Stretch, Fit, Cover } 
 
     [Header("UI")]
     public TextMeshProUGUI titleText;
@@ -27,7 +27,7 @@ public class CustomModeStoryPanel : MonoBehaviour
     public Image backgroundImageTemplate;
 
     [Tooltip("Cómo rellenar el contenedor: Stretch (deforma), Fit (encaja), Cover (cubre recortando)")]
-    public FillMode fillMode = FillMode.Cover; // por defecto: CUBRIR
+    public FillMode fillMode = FillMode.Cover; 
 
     [Header("Layout (botones desde el centro hacia abajo)")]
     public float buttonHeight = 44f;
@@ -109,7 +109,6 @@ public class CustomModeStoryPanel : MonoBehaviour
 
     public void Close() => gameObject.SetActive(false);
 
-    // ====================== RENDER ======================
     void RenderCurrent()
     {
         for (int i = 0; i < spawnedButtons.Count; i++)
@@ -151,7 +150,6 @@ public class CustomModeStoryPanel : MonoBehaviour
         LayoutButtonsFromCenterDown();
     }
 
-    // ====================== FONDOS MÚLTIPLES ======================
     void ApplyBackgroundLayersForNode(CustomModeStoryNode node)
     {
         if (!backgroundContainer) return;
@@ -198,18 +196,18 @@ public class CustomModeStoryPanel : MonoBehaviour
             img.sprite = sp;
             img.color = node.bgTint;
             img.type = Image.Type.Simple;
-            img.preserveAspect = false; // controlaremos el tamaño nosotros
+            img.preserveAspect = false; 
 
             SizeImageToFill(img.rectTransform, sp, contSize, fillMode);
         }
     }
 
-    // Coloca el RectTransform para Stretch/Fit/Cover manteniendo centrado
+
     void SizeImageToFill(RectTransform rt, Sprite sprite, Vector2 containerSize, FillMode mode)
     {
         if (!rt || !sprite) return;
 
-        // ancla centrada para poder cambiar sizeDelta libremente
+  
         rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
         rt.pivot = new Vector2(0.5f, 0.5f);
 
@@ -229,18 +227,18 @@ public class CustomModeStoryPanel : MonoBehaviour
         switch (mode)
         {
             case FillMode.Stretch:
-                // deforma para llenar exacto
+
                 target = containerSize;
                 break;
 
             case FillMode.Fit:
-                // encaja dentro manteniendo relación (pueden quedar bandas)
+
                 float fit = Mathf.Min(scaleX, scaleY);
                 target = new Vector2(sprW * fit, sprH * fit);
                 break;
 
-            default: // Cover
-                // cubre todo manteniendo relación (puede recortar exceso)
+            default: 
+
                 float cover = Mathf.Max(scaleX, scaleY);
                 target = new Vector2(sprW * cover, sprH * cover);
                 break;
@@ -250,7 +248,7 @@ public class CustomModeStoryPanel : MonoBehaviour
         rt.anchoredPosition = Vector2.zero;
     }
 
-    // ====================== BOTONES / LAYOUT ======================
+
     void SplitFirstLine(string s, out string firstLine, out string rest)
     {
         if (string.IsNullOrEmpty(s)) { firstLine = ""; rest = ""; return; }
@@ -371,7 +369,7 @@ public class CustomModeStoryPanel : MonoBehaviour
         }
     }
 
-    // ====================== ELECCIÓN ======================
+
     void OnChoose(CustomModeStoryNode.Option opt)
     {
         if (_locked) return;

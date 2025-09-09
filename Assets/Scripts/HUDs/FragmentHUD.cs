@@ -97,7 +97,6 @@ public class FragmentHUD : MonoBehaviour
         if (rootHUD) rootHUD.SetActive(true); 
     }
 
-    // --- Callbacks internos ---
     void OnFragmentsChanged(int current, int totalFromInventory)
     {
         int total = ResolveTotalFragments(fallback: totalFromInventory);

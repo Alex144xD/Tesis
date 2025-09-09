@@ -28,13 +28,13 @@ public class SimpleDamageBox : MonoBehaviour
         {
             Debug.LogWarning($"[SimpleDamageBox] No hay Collider en {name}. Agrega un BoxCollider.");
         }
-        // Si lo usas como trigger, asegúrate de tener un Rigidbody (isKinematic) en el root del enemigo.
+
     }
 
     public void SetActive(bool on)
     {
         active = on;
-        if (_col) _col.enabled = on; // opcional; apaga/enciende físicamente el collider
+        if (_col) _col.enabled = on; 
     }
 
     void TryHit(Collider other)
@@ -44,7 +44,7 @@ public class SimpleDamageBox : MonoBehaviour
         if (requireAttackState && ownerFSM != null && ownerFSM.CurrentState != EnemyFSM.EnemyState.Attack)
             return;
 
-        // Busca PlayerHealth en el objetivo o sus padres
+ 
         var hp = other.GetComponent<PlayerHealth>();
         if (!hp) hp = other.GetComponentInParent<PlayerHealth>();
         if (!hp) return;
@@ -60,11 +60,11 @@ public class SimpleDamageBox : MonoBehaviour
         _lastHitTime[key] = Time.time;
     }
 
-    // --- Trigger (recomendado) ---
+
     void OnTriggerEnter(Collider other) { TryHit(other); }
     void OnTriggerStay(Collider other) { TryHit(other); }
 
-    // --- Colisión sólida (si NO usas trigger) ---
+
     void OnCollisionEnter(Collision c) { if (_col && !_col.isTrigger && c.collider) TryHit(c.collider); }
     void OnCollisionStay(Collision c) { if (_col && !_col.isTrigger && c.collider) TryHit(c.collider); }
 }

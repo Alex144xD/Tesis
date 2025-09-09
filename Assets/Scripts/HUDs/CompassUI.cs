@@ -16,7 +16,7 @@ public class CompassUI : MonoBehaviour
     [Tooltip("Si hay varios CompassTarget, prioriza el que tenga isPrimary.")]
     public bool preferPrimaryTargets = true;
     [Tooltip("Velocidad de giro de la aguja de fragmento.")]
-    public float fragmentNeedleTurnSpeed = 720f; // deg/s
+    public float fragmentNeedleTurnSpeed = 720f; 
 
     [Header("Enemy Targeting")]
     [Tooltip("Radio de detección de enemigos en unidades de mundo.")]
@@ -26,7 +26,7 @@ public class CompassUI : MonoBehaviour
     [Tooltip("Cap de enemigos a considerar por escaneo (performance).")]
     public int maxCandidates = 64;
     [Tooltip("Velocidad de giro de la aguja de enemigo.")]
-    public float enemyNeedleTurnSpeed = 720f; // deg/s
+    public float enemyNeedleTurnSpeed = 720f; 
     [Tooltip("Ocultar/atenuar la aguja si no hay enemigo cercano.")]
     public bool hideEnemyNeedleWhenNone = true;
 
@@ -50,7 +50,7 @@ public class CompassUI : MonoBehaviour
 
     void Awake()
     {
-        // Player autowire
+  
         if (!player)
         {
             var go = GameObject.FindGameObjectWithTag("Player");
@@ -60,7 +60,7 @@ public class CompassUI : MonoBehaviour
 
     void OnEnable()
     {
-        // Fuerza primer escaneo inmediato
+ 
         _scanTimer = 999f;
     }
 
@@ -68,12 +68,11 @@ public class CompassUI : MonoBehaviour
     {
         if (!player) return;
 
-        // 1) Fragment needle (roja)
+   
         var frag = PickFragmentTarget();
         if (fragmentNeedle)
             AimNeedle(fragmentNeedle, frag ? frag.transform.position : (Vector3?)null, fragmentNeedleTurnSpeed);
 
-        // 2) Enemy needle (blanca)
         _scanTimer += Time.deltaTime;
         if (_scanTimer >= detectInterval)
         {
@@ -86,10 +85,10 @@ public class CompassUI : MonoBehaviour
         {
             if (hasEnemy)
             {
-                // Rotamos hacia el enemigo
+      
                 AimNeedle(enemyNeedle, _nearestEnemy.position, enemyNeedleTurnSpeed);
 
-                // Mostrar/atenuar según LOS
+       
                 float targetAlpha = enemyNeedleVisibleAlpha;
                 if (useLineOfSightCheck && !_nearestEnemyHasLOS)
                     targetAlpha = Mathf.Min(targetAlpha, occludedAlpha);
@@ -97,14 +96,14 @@ public class CompassUI : MonoBehaviour
             }
             else
             {
-                // Sin enemigo cercano
+
                 float a = hideEnemyNeedleWhenNone ? enemyNeedleHiddenAlpha : occludedAlpha;
                 SetNeedleAlpha(enemyNeedle, a);
             }
         }
     }
 
-    // ======== Fragment target picking ========
+
     CompassTarget PickFragmentTarget()
     {
         _targets.Clear();
@@ -125,7 +124,7 @@ public class CompassUI : MonoBehaviour
             var t = _targets[i];
             if (!t) continue;
 
-            // Prioriza primario si está activo
+       
             float pri = (preferPrimaryTargets && t.isPrimary) ? 10000f : 0f;
             // Más cercano mejor
             float dist = Vector3.SqrMagnitude(t.transform.position - player.position);
@@ -140,21 +139,21 @@ public class CompassUI : MonoBehaviour
         return best;
     }
 
-    // ======== Enemy search ========
+
     (Transform tr, bool hasLOS) FindNearestEnemy(Vector3 from, float radius)
     {
         Transform best = null;
         float bestDist2 = float.PositiveInfinity;
         bool bestLOS = false;
 
-        // 1) Primero intenta por EnemyFSM
+
         var enemiesFSM = GameObject.FindObjectsOfType<MonoBehaviour>(false);
         int seen = 0;
         for (int i = 0; i < enemiesFSM.Length && seen < maxCandidates; i++)
         {
             var mb = enemiesFSM[i];
             if (!mb || !mb.gameObject.activeInHierarchy) continue;
-            // Usa el nombre de clase para evitar hard-dependencia si EnemyFSM no siempre está en el proyecto
+
             if (mb.GetType().Name != "EnemyFSM") continue;
 
             seen++;
@@ -169,7 +168,6 @@ public class CompassUI : MonoBehaviour
             }
         }
 
-        // 2) Si no encontró con EnemyFSM, intenta por Tag "Enemy"
         if (!best)
         {
             var tagged = GameObject.FindGameObjectsWithTag("Enemy");
@@ -199,7 +197,7 @@ public class CompassUI : MonoBehaviour
         if (dist <= 0.001f) return true;
         dir /= dist;
 
-        // Levanta un poco el origen y el destino para raycast “de ojos”
+
         from.y += 1.5f;
         to.y += 1.5f;
         dir = (to - from).normalized;
@@ -208,22 +206,21 @@ public class CompassUI : MonoBehaviour
         return !Physics.Raycast(from, dir, maxDist, losBlockMask, QueryTriggerInteraction.Ignore);
     }
 
-    // ======== Needles control ========
     void AimNeedle(RectTransform needle, Vector3? worldTarget, float turnSpeed)
     {
         if (!needle || !player) return;
 
-        // Si no hay target, no rotamos (pero podría estar oculta).
+
         if (!worldTarget.HasValue) return;
 
         Vector3 to = worldTarget.Value - player.position;
         to.y = 0f;
         if (to.sqrMagnitude < 0.0001f) return;
 
-        float angle = Mathf.Atan2(to.x, to.z) * Mathf.Rad2Deg; // plano XZ, 0° = +Z
-        // Suavizado: Lerp angular hacia target
+        float angle = Mathf.Atan2(to.x, to.z) * Mathf.Rad2Deg; 
+
         float current = needle.eulerAngles.z;
-        float target = -angle; // UI suele estar con eje Z invertido para agujas 2D
+        float target = -angle; 
         float maxStep = turnSpeed * Time.deltaTime;
         float newZ = Mathf.MoveTowardsAngle(current, target, maxStep);
 
@@ -242,7 +239,7 @@ public class CompassUI : MonoBehaviour
             c.a = a;
             g.color = c;
         }
-        // Si la aguja tiene hijos (sprite + sombra), ajusta todos
+
         var graphics = needle.GetComponentsInChildren<Graphic>(true);
         for (int i = 0; i < graphics.Length; i++)
         {
