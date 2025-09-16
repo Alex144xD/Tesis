@@ -39,6 +39,7 @@ public class PlayerLightController : MonoBehaviour
     [Header("Audio Linterna")]
     public AudioClip soundOn;
     public AudioClip soundOff;
+    public AudioClip soundModeSwitch; // [MEJORA] sonido LOW/HIGH
     public float volume = 1f;
 
     [Header("Integración con sistema de baterías")]
@@ -63,19 +64,25 @@ public class PlayerLightController : MonoBehaviour
     public float redDrainMult = 1.3f;
     public float blueDrainMult = 0.85f;
 
-    // ===== Detección de enemigos =====
-    [Header("Detección de enemigos")]
-    public bool queryAllLayers = true;
-    public LayerMask enemyLayer = ~0;
+    // ===== Detección por Rayo =====
+    [Header("Raycast rápido (sustituye barrido por cono)")]
+    public bool useRaycastDetection = true;      // [MEJORA] activa raycast simple
+    public bool useSphereCast = true;            // [MEJORA] spherecast para perdonar puntería
+    [Range(0f, 0.75f)] public float sphereRadius = 0.18f;
+    public LayerMask losMask = ~0;               // [MEJORA] capas que golpea el rayo (enemigos + paredes)
+    public bool stopAtFirstHit = true;           // [MEJORA] solo el primer impacto válido
+
+    // ===== (Compatibilidad) Filtros adicionales =====
+    [Header("Compatibilidad filtros (si reutilizas)")]
     public bool requireEnemyTag = false;
     public string enemyTag = "Enemy";
 
-    // ===== Debug =====
+    // ===== Gizmos / Debug =====
     [Header("Debug")]
     public bool debugEnemyHit = false;          // log por enemigo impactado
     public bool debugTrace = true;              // logs de flujo (por qué se aborta)
-    public bool debugVerboseRejects = false;    // por qué se descarta cada collider
-    public bool debugDrawCone = true;           // dibuja cono y rango en escena
+    public bool debugVerboseRejects = false;    // detalle de descartes
+    public bool debugDrawCone = true;           // gizmo de cono (visual)
     public Color gizmoColorHigh = new Color(1f, 1f, 0f, 0.25f);
     public Color gizmoColorLow = new Color(0f, 1f, 1f, 0.25f);
 
@@ -89,7 +96,6 @@ public class PlayerLightController : MonoBehaviour
     private Color currentLightColor;
     private FlashlightUIMode currentMode = FlashlightUIMode.Off;
     private FlashlightUIMode lastModePlayed = FlashlightUIMode.Off;
-    private Collider[] hitsBuffer;
     private float originalSpotAngle = 60f;
     private bool warnedNoCamera = false;
 
@@ -131,8 +137,6 @@ public class PlayerLightController : MonoBehaviour
         if (!audioSrc) audioSrc = gameObject.AddComponent<AudioSource>();
         audioSrc.playOnAwake = false;
         audioSrc.spatialBlend = 0f;
-
-        hitsBuffer = new Collider[Mathf.Max(64, 256)];
     }
 
     void Start()
@@ -151,22 +155,21 @@ public class PlayerLightController : MonoBehaviour
             return;
         }
 
-        // Entrada
-        bool leftPressed = Input.GetMouseButton(0);   // LOW
-        bool rightPressed = Input.GetMouseButton(1);   // HIGH
+        // Entrada (rápida): mouse 0 = LOW, mouse 1 = HIGH
+        bool leftPressed = Input.GetMouseButton(0); // LOW
+        bool rightPressed = Input.GetMouseButton(1); // HIGH
 
         FlashlightUIMode desiredMode = FlashlightUIMode.Off;
         if (rightPressed) desiredMode = FlashlightUIMode.High;
         else if (leftPressed) desiredMode = FlashlightUIMode.Low;
 
         if (GetBatteryNormalized() <= 0f) desiredMode = FlashlightUIMode.Off;
-
         bool wantOn = (desiredMode != FlashlightUIMode.Off);
 
         if (wantOn != isOn)
         {
             isOn = wantOn;
-            PlayToggleSound(isOn);
+            PlayToggleSound(isOn);           // ON/OFF
             SetLampEnabled(isOn);
             StopBlinkIfRunning();
             if (isOn && debugTrace) Debug.Log("[Light] ON");
@@ -176,7 +179,7 @@ public class PlayerLightController : MonoBehaviour
         if (isOn && desiredMode != currentMode)
         {
             currentMode = desiredMode;
-            PlayToggleSound(true);
+            PlayModeSwitchSound();           // [MEJORA] sonido de cambio LOW/HIGH
             lastModePlayed = currentMode;
             if (debugTrace) Debug.Log($"[Light] Modo -> {currentMode}");
         }
@@ -218,7 +221,9 @@ public class PlayerLightController : MonoBehaviour
                 }
             }
             else
+            {
                 stillHas = GetBatteryNormalized() > 0f;
+            }
 
             if (!stillHas)
             {
@@ -237,7 +242,7 @@ public class PlayerLightController : MonoBehaviour
                 if (currentMode == FlashlightUIMode.High)
                 {
                     float highAngle = overrideHighAngle ? highAngleOverride : originalSpotAngle;
-                    lamp.spotAngle = highAngle; // HAZ GRANDE (como original)
+                    lamp.spotAngle = highAngle; // HAZ GRANDE
                     lamp.range = Mathf.Lerp(minRange, maxRange, tNoise);
                     lamp.intensity = Mathf.Lerp(baseIntensity * 0.7f, baseIntensity, p);
                 }
@@ -257,7 +262,10 @@ public class PlayerLightController : MonoBehaviour
                 else { StopBlinkIfRunning(); lamp.enabled = true; }
 
                 UpdateTintByBattery();
-                AffectEnemiesInLight(); // <<<<<< clave
+
+                // --------- DETECCIÓN POR RAYO (rápido) ---------
+                if (useRaycastDetection)
+                    AffectEnemiesInLight_Raycast(); // [MEJORA]
             }
         }
         else
@@ -281,6 +289,12 @@ public class PlayerLightController : MonoBehaviour
         if (!audioSrc) return;
         AudioClip clip = turningOn ? soundOn : soundOff;
         if (clip) audioSrc.PlayOneShot(clip, volume);
+    }
+
+    private void PlayModeSwitchSound() // [MEJORA]
+    {
+        if (!audioSrc || !soundModeSwitch) return;
+        audioSrc.PlayOneShot(soundModeSwitch, volume);
     }
 
     private void UpdateTintByBattery()
@@ -322,97 +336,113 @@ public class PlayerLightController : MonoBehaviour
         }
     }
 
-    // ====== DETECCIÓN + NOTIFICACIÓN A ENEMIGOS ======
-    private void AffectEnemiesInLight()
+    // ====== REGLA de espanto por tipo + color + modo ======
+    private bool MatchesScareRule(EnemyFSM enemy, BatteryType bType, FlashlightUIMode mode)
     {
-        if (!lamp)
+        switch (enemy.kind)
         {
-            if (debugTrace) Debug.LogWarning("[Light] No hay componente Light.");
-            return;
+            case EnemyFSM.EnemyKind.Basic:
+                // Basic: Verde con Low o High
+                return (bType == BatteryType.Green) &&
+                       (mode == FlashlightUIMode.Low || mode == FlashlightUIMode.High);
+
+            case EnemyFSM.EnemyKind.Heavy:
+                // Heavy: Rojo con High
+                return (bType == BatteryType.Red) &&
+                       (mode == FlashlightUIMode.High);
+
+            case EnemyFSM.EnemyKind.Runner:
+                // Runner: Azul con Low
+                return (bType == BatteryType.Blue) &&
+                       (mode == FlashlightUIMode.Low);
         }
-        if (!lamp.enabled)
+        return false;
+    }
+
+    // ====== DETECCIÓN + NOTIFICACIÓN: RAYCAST/SPHERECAST ======
+    private void AffectEnemiesInLight_Raycast()
+    {
+        if (!lamp || !lamp.enabled) return;
+        if (currentMode == FlashlightUIMode.Off) return;
+
+        Vector3 origin = playerCamera ? playerCamera.transform.position : transform.position;
+        Vector3 dir = playerCamera ? playerCamera.transform.forward : transform.forward;
+        float dist = lamp.range;
+
+        bool hitSomething;
+        RaycastHit hit;
+
+        if (useSphereCast && sphereRadius > 0f)
+            hitSomething = Physics.SphereCast(origin, sphereRadius, dir, out hit, dist, losMask, QueryTriggerInteraction.Ignore);
+        else
+            hitSomething = Physics.Raycast(origin, dir, out hit, dist, losMask, QueryTriggerInteraction.Ignore);
+
+        if (!hitSomething) return;
+
+        var enemy = hit.collider.GetComponent<EnemyFSM>() ??
+                    hit.collider.GetComponentInParent<EnemyFSM>() ??
+                    hit.collider.GetComponentInChildren<EnemyFSM>();
+
+        if (enemy == null) return; // golpeó pared u otro objeto
+
+        if (requireEnemyTag)
         {
-            if (debugTrace) Debug.Log("[Light] Lámpara deshabilitada: no se detecta.");
-            return;
+            bool hasTag = hit.collider.CompareTag(enemyTag) || enemy.CompareTag(enemyTag);
+            if (!hasTag) return;
         }
 
-        int layerMask = queryAllLayers ? Physics.AllLayers : (int)enemyLayer;
+        var bType = (batteries != null) ? batteries.activeType : BatteryType.Green;
+        if (!MatchesScareRule(enemy, bType, currentMode)) return;
 
-        if (hitsBuffer == null || hitsBuffer.Length < 64) hitsBuffer = new Collider[64];
-
-        int count = Physics.OverlapSphereNonAlloc(
-            transform.position, lamp.range, hitsBuffer, layerMask, QueryTriggerInteraction.Ignore
+        enemy.OnLightImpact(
+            lightOrigin: origin,
+            lightForward: dir,
+            battery: bType,
+            mode: currentMode
         );
 
-        if (debugTrace)
-            Debug.Log($"[Light] Sweep r={lamp.range:0.0} angle={lamp.spotAngle:0} mode={currentMode} hits={count}");
+        if (debugEnemyHit)
+            Debug.Log($"[Light/Raycast] Impact {enemy.name} ({enemy.kind}) mode={currentMode} color={bType} dist={hit.distance:0.0}");
 
-        float halfAngle = lamp.spotAngle * 0.5f;
-
-        for (int i = 0; i < count; i++)
+        if (!stopAtFirstHit)
         {
-            var col = hitsBuffer[i];
-            if (!col)
-            {
-                if (debugVerboseRejects) Debug.Log("[Light] hit=null (descartado)");
-                continue;
-            }
+            // Si quieres espantar varios en línea, puedes usar RaycastAll/SphereCastAll aquí.
+            // var hits = Physics.SphereCastAll(origin, sphereRadius, dir, dist, losMask, QueryTriggerInteraction.Ignore);
+            // foreach (var h in hits) { ... misma lógica ... }
+        }
+    }
 
-            EnemyFSM enemy =
-                col.GetComponent<EnemyFSM>() ??
-                col.GetComponentInParent<EnemyFSM>() ??
-                col.GetComponentInChildren<EnemyFSM>();
+    // ===== Gizmos para ver el cono (útil para debug visual) =====
+    void OnDrawGizmosSelected()
+    {
+        if (!debugDrawCone) return;
+        if (!lamp) lamp = GetComponent<Light>();
+        if (!lamp) return;
 
-            if (!enemy)
-            {
-                if (debugVerboseRejects) Debug.Log($"[Light] {col.name} sin EnemyFSM (descartado)");
-                continue;
-            }
+        float r = lamp.range;
+        float half = lamp.spotAngle * 0.5f;
 
-            if (requireEnemyTag)
-            {
-                bool hasTag = col.CompareTag(enemyTag) || enemy.CompareTag(enemyTag);
-                if (!hasTag)
-                {
-                    if (debugVerboseRejects) Debug.Log($"[Light] {enemy.name} sin tag '{enemyTag}' (descartado)");
-                    continue;
-                }
-            }
+        Gizmos.color = (currentMode == FlashlightUIMode.High) ? gizmoColorHigh : gizmoColorLow;
 
-            Vector3 center = col.bounds.center;
-            Vector3 toEnemy = (center - transform.position);
-            float dist = toEnemy.magnitude;
-            if (dist > lamp.range)
-            {
-                if (debugVerboseRejects) Debug.Log($"[Light] {enemy.name} fuera de rango ({dist:0.00})");
-                continue;
-            }
+        Vector3 origin = transform.position;
+        Vector3 forward = transform.forward;
 
-            Vector3 dir = toEnemy / Mathf.Max(0.0001f, dist);
-            float angle = Vector3.Angle(transform.forward, dir);
-            if (angle > halfAngle)
-            {
-                if (debugVerboseRejects) Debug.Log($"[Light] {enemy.name} fuera de cono (ang={angle:0})");
-                continue;
-            }
+        Vector3 right = Quaternion.AngleAxis(half, transform.up) * forward;
+        Vector3 left = Quaternion.AngleAxis(-half, transform.up) * forward;
 
-            var bType = (batteries != null) ? batteries.activeType : BatteryType.Green;
-            if (currentMode == FlashlightUIMode.Off)
-            {
-                if (debugVerboseRejects) Debug.Log($"[Light] {enemy.name} -> modo Off (descartado)");
-                continue;
-            }
+        Gizmos.DrawLine(origin, origin + forward * r);
+        Gizmos.DrawLine(origin, origin + right * r);
+        Gizmos.DrawLine(origin, origin + left * r);
 
-            // IMPACTO: detener ataque + huida opuesta
-            enemy.OnLightImpact(
-                lightOrigin: transform.position,
-                lightForward: transform.forward,
-                battery: bType,
-                mode: currentMode
-            );
-
-            if (debugEnemyHit)
-                Debug.Log($"[Light] Impact {enemy.name} dist={dist:0.0} angle={angle:0} mode={currentMode} battery={bType}");
+        int seg = 24;
+        Vector3 prev = origin + (Quaternion.AngleAxis(-half, transform.up) * forward) * r;
+        for (int i = 1; i <= seg; i++)
+        {
+            float t = -half + (lamp.spotAngle) * (i / (float)seg);
+            Vector3 dir = Quaternion.AngleAxis(t, transform.up) * forward;
+            Vector3 p = origin + dir * r;
+            Gizmos.DrawLine(prev, p);
+            prev = p;
         }
     }
 
@@ -432,7 +462,7 @@ public class PlayerLightController : MonoBehaviour
             isOn = true;
             SetLampEnabled(true);
             StopBlinkIfRunning();
-            lamp.enabled = true;
+            if (lamp) lamp.enabled = true;
         }
     }
 
@@ -491,43 +521,5 @@ public class PlayerLightController : MonoBehaviour
             : Mathf.Max(0.0001f, maxBattery);
 
         return maxCap * pctPerSec;
-    }
-
-    // ===== Gizmos para ver el cono =====
-    void OnDrawGizmosSelected()
-    {
-        if (!debugDrawCone) return;
-        if (!lamp) lamp = GetComponent<Light>();
-        if (!lamp) return;
-
-        float r = lamp.range;
-        float half = lamp.spotAngle * 0.5f;
-
-        // color según modo
-        Gizmos.color = (currentMode == FlashlightUIMode.High) ? gizmoColorHigh : gizmoColorLow;
-
-        // Dibuja “cono” aproximado (círculo al final + líneas)
-        Vector3 origin = transform.position;
-        Vector3 forward = transform.forward;
-
-        // plano del círculo final
-        Vector3 right = Quaternion.AngleAxis(half, transform.up) * forward;
-        Vector3 left = Quaternion.AngleAxis(-half, transform.up) * forward;
-
-        Gizmos.DrawLine(origin, origin + forward * r);
-        Gizmos.DrawLine(origin, origin + right * r);
-        Gizmos.DrawLine(origin, origin + left * r);
-
-        // dibujar círculo aproximado
-        int seg = 24;
-        Vector3 prev = origin + (Quaternion.AngleAxis(-half, transform.up) * forward) * r;
-        for (int i = 1; i <= seg; i++)
-        {
-            float t = -half + (lamp.spotAngle) * (i / (float)seg);
-            Vector3 dir = Quaternion.AngleAxis(t, transform.up) * forward;
-            Vector3 p = origin + dir * r;
-            Gizmos.DrawLine(prev, p);
-            prev = p;
-        }
     }
 }

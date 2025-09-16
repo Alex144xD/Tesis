@@ -10,12 +10,10 @@ public class CustomModeRuntime : MonoBehaviour
 
     bool _customModeStarted;
 
-
     struct MapBase
     {
-        public float enemyDensity, batteryDensity;
         public int decorativeTorchesNearPath;
-        public int fragmentMinRing, fragmentMaxRing;
+        public float room2Chance, room3Chance;
         public int width, height;
         public bool has;
     }
@@ -25,7 +23,6 @@ public class CustomModeRuntime : MonoBehaviour
         public float patrolSpeed, chaseSpeed, attackDamage;
         public bool has;
     }
-
 
     struct LightBase
     {
@@ -50,7 +47,6 @@ public class CustomModeRuntime : MonoBehaviour
         if (Instance == this) Instance = null;
         SceneManager.sceneLoaded -= OnSceneLoaded_Reapply;
     }
-
 
     public void SetProfile(CustomModeProfile profile)
     {
@@ -103,11 +99,7 @@ public class CustomModeRuntime : MonoBehaviour
         {
             b = new MapBase
             {
-                enemyDensity = map.enemyDensity,
-                batteryDensity = map.batteryDensity,
                 decorativeTorchesNearPath = map.decorativeTorchesNearPath,
-                fragmentMinRing = map.fragmentMinRing,
-                fragmentMaxRing = map.fragmentMaxRing,
                 width = map.width,
                 height = map.height,
                 has = true
@@ -115,24 +107,28 @@ public class CustomModeRuntime : MonoBehaviour
             mapBase[id] = b;
         }
 
+        // --- Tamaño de mapa (mapSizeMul + maxMapSize), impar y mínimo 7 ---
+        int MaxOdd(int v, int cap)
+        {
+            v = Mathf.Clamp(v, 7, Mathf.Max(7, cap));
+            if (v % 2 == 0) v++;
+            return v;
+        }
+        int newW = Mathf.RoundToInt(b.width * ActiveProfile.mapSizeMul);
+        int newH = Mathf.RoundToInt(b.height * ActiveProfile.mapSizeMul);
+        newW = MaxOdd(newW, ActiveProfile.maxMapSize);
+        newH = MaxOdd(newH, ActiveProfile.maxMapSize);
+        if (newW != map.width || newH != map.height)
 
-        float enemyD = b.enemyDensity * ActiveProfile.enemyDensityMul;
-        float battD = b.batteryDensity * ActiveProfile.batteryDensityMul;
-
-        int ringMin = b.fragmentMinRing;
-        int ringMax = b.fragmentMaxRing;
-
-        map.SetGenerationTuning(enemyD, battD, ringMin, ringMax);
-
-        if (ActiveProfile.torchesOnlyStartFew)
-            map.decorativeTorchesNearPath = Mathf.Max(0, b.decorativeTorchesNearPath - 1);
-        else
-            map.decorativeTorchesNearPath = b.decorativeTorchesNearPath;
+        // Torches
+        map.decorativeTorchesNearPath = ActiveProfile.torchesOnlyStartFew
+            ? Mathf.Max(0, b.decorativeTorchesNearPath - 1)
+            : b.decorativeTorchesNearPath;
 
 
+        // Meta fragmentos (el mapa hace clamp 1..9)
         int targetFragments = Mathf.Max(1, ActiveProfile.targetFloors);
         map.SetTargetFragments(targetFragments);
-
 
         var inv = FindObjectOfType<PlayerInventory>(true);
         if (inv)
@@ -140,7 +136,6 @@ public class CustomModeRuntime : MonoBehaviour
             inv.OverrideFragmentsToWin(targetFragments);
         }
     }
-
 
     public void ApplyToEnemy(EnemyFSM enemy)
     {
@@ -170,7 +165,6 @@ public class CustomModeRuntime : MonoBehaviour
             resist.SetResistsLight(ActiveProfile.enemy3ResistsLight);
     }
 
-
     public void ApplyToFlashlight(PlayerLightController lightCtrl)
     {
         if (!ActiveProfile || !lightCtrl) return;
@@ -186,7 +180,6 @@ public class CustomModeRuntime : MonoBehaviour
             lightBase[id] = b;
         }
 
-
         lightCtrl.baseDrainPercentPerSecond = b.baseDrainPercentPerSecond * ActiveProfile.batteryDrainMul;
     }
 
@@ -197,7 +190,6 @@ public class CustomModeRuntime : MonoBehaviour
         lightBase.Clear();
     }
 }
-
 
 public interface IEnemyBatteryDrainer
 {

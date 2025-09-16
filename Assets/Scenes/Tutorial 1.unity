@@ -961,44 +961,33 @@ MonoBehaviour:
   minFloorHeadroom: 0.75
   floorPrefab: {fileID: 3885381181281348780, guid: ae6753cd700861a488cfaae316f830b8, type: 3}
   wallPrefab: {fileID: 2069553826758840743, guid: 9f81880c798fe7842a5a1728175a3453, type: 3}
+  wallPrefabRed: {fileID: 0}
+  wallPrefabBlue: {fileID: 0}
   wallTorchPrefab: {fileID: 0}
-  batteryPrefabs:
-  - {fileID: 168528, guid: c066fccfd7efd274c92dc9b4e2ed3532, type: 3}
-  - {fileID: 168528, guid: 9e449e64357fb4e4b8f6a73b40377ca8, type: 3}
-  - {fileID: 168528, guid: f7f596317acdaa342a6fe19ed66334c7, type: 3}
   soulFragmentPrefab: {fileID: 3690126834859164667, guid: 7e218bf3789d0844f81b9623d37b93e7, type: 3}
   enemyPrefabs: []
+  enemyType1Prefabs:
+  - {fileID: 3595625012628118935, guid: 90a972e2bf680a44b8069c43bb799293, type: 3}
+  enemyType2Prefabs: []
+  enemyType3Prefabs: []
+  batteryRedPrefab: {fileID: 0}
+  batteryGreenPrefab: {fileID: 0}
+  batteryBluePrefab: {fileID: 0}
   player: {fileID: 393803999}
   playerPrefab: {fileID: 393803993}
   spawnPlayerIfMissing: 1
-  autoScaleByMapSize: 1
-  enemyDensity: 0.0075
-  batteryDensity: 0.006
-  fragmentDensity: 0.002
-  minEnemies: 2
-  maxEnemies: 8
-  minBatteries: 1
-  maxBatteries: 10
   regenerationInterval: 10
   safeRadiusCells: 5
-  oneFragmentPerFloor: 1
   pickupLiftEpsilon: 0.02
   useSequentialFragments: 1
   targetFragments: 1
   fragmentsCollected: 0
-  fragmentMinRing: 8
-  fragmentMaxRing: 18
   decorativeTorchesNearPath: 3
   torchPathSkip: 5
   bellClip: {fileID: 8300000, guid: d80acd30bff789d45931669b293c60ea, type: 3}
   bellVolume: 0.9
   progressiveEnemyWaves: 1
-  spawnEnemiesAtStart: 0
-  enemyType1Prefabs:
-  - {fileID: 3595625012628118935, guid: b4dbbd5c206d23a4db638565a734224d, type: 3}
-  enemyType2Prefabs: []
-  enemyType3Prefabs: []
-  limitEnemiesToOneToThree: 1
+  biomeMinWidth: 5
 --- !u!1 &268820506
 GameObject:
   m_ObjectHideFlags: 0
@@ -1575,6 +1564,7 @@ MonoBehaviour:
   colorLerpSpeed: 8
   soundOn: {fileID: 8300000, guid: 86ef9e1e095d455478775f5a059514d9, type: 3}
   soundOff: {fileID: 8300000, guid: 017b418d5803d474292c2fb1ce506904, type: 3}
+  soundModeSwitch: {fileID: 0}
   volume: 1
   batterySystemControlsDrain: 1
   lowAngleScale: 0.75
@@ -1588,10 +1578,13 @@ MonoBehaviour:
   greenDrainMult: 1
   redDrainMult: 1.3
   blueDrainMult: 0.8
-  queryAllLayers: 1
-  enemyLayer:
+  useRaycastDetection: 1
+  useSphereCast: 1
+  sphereRadius: 0.18
+  losMask:
     serializedVersion: 2
     m_Bits: 4294967295
+  stopAtFirstHit: 1
   requireEnemyTag: 1
   enemyTag: Enemy
   debugEnemyHit: 1

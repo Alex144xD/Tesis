@@ -8,7 +8,6 @@ public class EnemyFSM : MonoBehaviour
     public enum EnemyState { Idle, Patrol, Chase, Attack, Flee }
     public enum EnemyKind { Basic, Heavy, Runner }
 
-
     public EnemyState CurrentState => currentState;
 
     [Header("Tipo de enemigo")]
@@ -142,9 +141,17 @@ public class EnemyFSM : MonoBehaviour
     [Tooltip("Knockback inicial al espantarse.")]
     public float scareKnockback = 1.2f;
 
+    // NUEVO: duración de huida por tipo
+    [Header("Duración de Flee por tipo")]
+    public float fleeSecondsBasic = 2.5f;
+    public float fleeSecondsHeavy = 2.0f;
+    public float fleeSecondsRunner = 3.0f;
+
     private float attackSuppressedUntil = -999f;
     private float deflectUntil = -999f;
     private float scareLockUntil = -999f;
+    private float fleeUntil = -999f;                  // NUEVO
+    private Vector3 lastAwayFromLight = Vector3.zero; // NUEVO
 
     // ===== Feedback visual (flash de color al espantarse) =====
     [Header("Feedback visual (scare flash)")]
@@ -221,7 +228,7 @@ public class EnemyFSM : MonoBehaviour
         }
 
         currentState = EnemyState.Idle;
-        _prevState = currentState; 
+        _prevState = currentState;
         Invoke(nameof(StartPatrolling), 0.75f);
 
         lastPos = transform.position;
@@ -230,7 +237,6 @@ public class EnemyFSM : MonoBehaviour
         lastSeenTimer = 0f;
 
         UpdateLoopByLogical("Idle");
-
 
         if (scareFlashEnabled)
         {
@@ -241,7 +247,7 @@ public class EnemyFSM : MonoBehaviour
             foreach (var r in scareRenderers)
             {
                 if (!r) continue;
-                foreach (var m in r.materials) 
+                foreach (var m in r.materials)
                 {
                     if (!m) continue;
                     var cache = new MatCache { mat = m };
@@ -302,19 +308,17 @@ public class EnemyFSM : MonoBehaviour
             stuckTimer = 0f;
         }
 
-
+        // Asegura hitbox off si ataque está suprimido
         if (useSimpleDamageBox && simpleHitbox)
         {
-            if (_prevState != currentState)
+            bool shouldBeOn = (currentState == EnemyState.Attack) && (Time.time >= attackSuppressedUntil);
+            if (simpleHitbox.active != shouldBeOn)
             {
-                bool on = (currentState == EnemyState.Attack) && (Time.time >= attackSuppressedUntil);
-                simpleHitbox.damage = Mathf.RoundToInt(attackDamage); 
-                simpleHitbox.SetActive(on);
-                _prevState = currentState;
+                simpleHitbox.damage = Mathf.RoundToInt(attackDamage);
+                simpleHitbox.SetActive(shouldBeOn);
             }
         }
     }
-
 
     void StateIdle()
     {
@@ -347,11 +351,8 @@ public class EnemyFSM : MonoBehaviour
     {
         SetAnimation("Run");
 
-        if (Time.time < deflectUntil)
-        {
-       
-        }
-        else
+        // Si estamos en desvío por luz, no recalculamos hacia el jugador aún
+        if (Time.time >= deflectUntil)
         {
             bool seesNow = UpdatePlayerSensing();
             Vector3 target;
@@ -397,7 +398,7 @@ public class EnemyFSM : MonoBehaviour
             return;
         }
 
-  
+        // Ataque suprimido -> retroceso leve
         if (Time.time < attackSuppressedUntil)
         {
             if (useSimpleDamageBox && simpleHitbox && simpleHitbox.active) simpleHitbox.SetActive(false);
@@ -420,7 +421,6 @@ public class EnemyFSM : MonoBehaviour
             return;
         }
 
-
         Vector3 dir = (player.position - transform.position);
         dir.y = 0f;
         if (dir.sqrMagnitude > 0.0001f)
@@ -433,7 +433,6 @@ public class EnemyFSM : MonoBehaviour
         }
 
         FaceTarget(player.position, 1f);
-
 
         if (!useSimpleDamageBox)
         {
@@ -454,23 +453,26 @@ public class EnemyFSM : MonoBehaviour
     void StateFlee()
     {
         SetAnimation("Run");
-        MoveAlongPath(chaseSpeed * 1.2f);
-        FaceTowardsPathOrPlayer();
 
-        if (!player) { ApplyGravity(); return; }
-
-        if (Vector3.Distance(transform.position, player.position) > detectionRange * 2f)
+        // Salir de Flee por tiempo
+        if (Time.time >= fleeUntil)
         {
             currentState = EnemyState.Patrol;
             GoToRandomPatrolPoint();
+            return;
         }
-        else if (ReachedPathEnd())
+
+        // Si llegamos al destino actual de huida, elegir otro en la misma dirección base
+        if (ReachedPathEnd())
         {
-            ChooseFleeDestination();
+            ChooseFleeDestination(lastAwayFromLight);
         }
+
+        MoveAlongPath(chaseSpeed * 1.2f);
+        FaceTowardsPathOrPlayer();
     }
 
-
+    // ===== Navegación / Movimiento =====
     void MoveAlongPath(float speed)
     {
         if (currentPath == null || pathIndex >= currentPath.Count)
@@ -568,7 +570,6 @@ public class EnemyFSM : MonoBehaviour
         }
     }
 
-
     void SlideMove(Vector3 horizVelocity)
     {
         if ((Time.time - lastHitTime) < hitMemory && lastHitNormal != Vector3.zero)
@@ -595,8 +596,6 @@ public class EnemyFSM : MonoBehaviour
             lastHitTime = Time.time;
         }
     }
-
-
 
     Vector3 ComputeSeparationLimited()
     {
@@ -663,8 +662,6 @@ public class EnemyFSM : MonoBehaviour
         nudge.y = 0f;
         return nudge;
     }
-
-
 
     private void OnMapChanged()
     {
@@ -738,9 +735,12 @@ public class EnemyFSM : MonoBehaviour
         recalcTimer = recalculatePathInterval;
     }
 
-
+    // ========= IMPACTO DE LUZ (desde PlayerLightController) =========
     public void OnLightImpact(Vector3 lightOrigin, Vector3 lightForward, BatteryType battery, PlayerLightController.FlashlightUIMode mode)
     {
+        // 0) Desactiva hitbox de ataque inmediato
+        if (useSimpleDamageBox && simpleHitbox && simpleHitbox.active) simpleHitbox.SetActive(false);
+
         // 1) Suprimir ataque
         attackSuppressedUntil = Time.time + Mathf.Max(0.05f, suppressAttackSeconds);
 
@@ -749,31 +749,32 @@ public class EnemyFSM : MonoBehaviour
         away.y = 0f;
         if (away.sqrMagnitude < 0.0001f) away = -lightForward;
         away = away.normalized;
+        lastAwayFromLight = away; // guardar para Flee dirigido
 
+        // 3) Retiro inmediato
         Vector3 immediateTarget = transform.position + away * Mathf.Max(1f, immediateRetreatDistance);
         if (map)
         {
             var c = map.WorldToCell(immediateTarget);
             immediateTarget = map.CellCenterToWorld(c, floorIndex);
         }
-
-
         RecalcPathTo(immediateTarget);
         deflectUntil = Time.time + Mathf.Max(0.1f, deflectDuration);
 
+        // 4) ¿Se debe espantar según la regla?
         if (ShouldScareNow(battery, mode) && Time.time >= scareLockUntil)
         {
-            // Knockback suave
+            // Knockback
             if (scareKnockback > 0f)
                 controller.Move(away * scareKnockback * Time.deltaTime);
 
-            if (currentState != EnemyState.Flee)
-            {
-                ClearReservedCell();
-                currentState = EnemyState.Flee;
-                ChooseFleeDestination();
-            }
+            // Cambiar a Flee con duración por tipo
+            ClearReservedCell();
+            currentState = EnemyState.Flee;
+            fleeUntil = Time.time + GetFleeDurationByKind();
+            ChooseFleeDestination(away); // Flee dirigido
 
+            // Flash de color
             if (scareFlashEnabled)
             {
                 Color flash = ColorForBattery(battery);
@@ -781,66 +782,113 @@ public class EnemyFSM : MonoBehaviour
                 _scareFlashCo = StartCoroutine(CoScareFlash(flash));
             }
 
-            scareLockUntil = Time.time + 1.0f; 
+            scareLockUntil = Time.time + 0.6f; // pequeño cooldown anti-spam
             lastAttackTime = Time.time + Mathf.Max(0.2f, attackCooldown * 0.5f);
 
-            if (debugScareLogs) Debug.Log($"[{name}] FLEE by light (battery={battery}, mode={mode})");
+            if (debugScareLogs) Debug.Log($"[{name}] FLEE by light (battery={battery}, mode={mode}) for {GetFleeDurationByKind():0.00}s");
         }
         else
         {
+            // Si no califica para Flee, al menos saca del Attack
             if (currentState == EnemyState.Attack)
                 currentState = EnemyState.Chase;
-
         }
+    }
+
+    private float GetFleeDurationByKind()
+    {
+        switch (kind)
+        {
+            case EnemyKind.Basic: return Mathf.Max(0.3f, fleeSecondsBasic);
+            case EnemyKind.Heavy: return Mathf.Max(0.3f, fleeSecondsHeavy);
+            case EnemyKind.Runner: return Mathf.Max(0.3f, fleeSecondsRunner);
+        }
+        return 2.0f;
     }
 
     private bool ShouldScareNow(BatteryType battery, PlayerLightController.FlashlightUIMode mode)
     {
+        // Reglas acordadas:
+        // Basic -> Verde con Low o High
+        // Heavy -> Rojo con High
+        // Runner -> Azul con Low
         switch (kind)
         {
-            case EnemyKind.Basic: 
+            case EnemyKind.Basic:
                 return battery == BatteryType.Green &&
                        (mode == PlayerLightController.FlashlightUIMode.Low ||
                         mode == PlayerLightController.FlashlightUIMode.High);
 
-            case EnemyKind.Heavy: 
+            case EnemyKind.Heavy:
                 return battery == BatteryType.Red &&
                        mode == PlayerLightController.FlashlightUIMode.High;
 
-            case EnemyKind.Runner: 
+            case EnemyKind.Runner:
                 return battery == BatteryType.Blue &&
                        mode == PlayerLightController.FlashlightUIMode.Low;
         }
         return false;
     }
 
-    private void ChooseFleeDestination()
+    // ====== Flee dirigido por vector "away" ======
+    private void ChooseFleeDestination(Vector3 awayDir)
     {
         if (!player || MultiFloorDynamicMapManager.Instance == null) return;
 
         var free = MultiFloorDynamicMapManager.Instance.GetFreeCells(floorIndex);
         if (free.Count == 0) return;
 
-        Vector2Int farthest = free[0];
-        float maxScore = float.NegativeInfinity;
+        awayDir.y = 0f;
+        if (awayDir.sqrMagnitude < 0.0001f)
+            awayDir = (transform.position - (player ? player.position : transform.position)).normalized;
+        awayDir = awayDir.sqrMagnitude > 0f ? awayDir.normalized : Vector3.forward;
+
+        Vector2Int bestCell = free[0];
+        float bestScore = float.NegativeInfinity;
 
         foreach (var cell in free)
         {
             Vector3 pos = MultiFloorDynamicMapManager.Instance.CellCenterToWorld(cell, floorIndex);
-            float d = Vector3.Distance(pos, player.position);
-            Vector3 away = (pos - transform.position).normalized;
-            Vector3 toPlayer = (player.position - transform.position).normalized;
-            float oppositeBonus = Vector3.Dot(away, -toPlayer);
-            float score = d + oppositeBonus * 3f;
-            if (score > maxScore) { maxScore = score; farthest = cell; }
+            Vector3 myToCell = (pos - transform.position); myToCell.y = 0f;
+
+            float distScore = myToCell.magnitude;                    // preferir lejos
+            float dirScore = Vector3.Dot(myToCell.normalized, awayDir) * 3f; // preferir dirección opuesta a luz
+
+            float score = distScore + dirScore;
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestCell = cell;
+            }
         }
 
-        Vector3 fleePos = MultiFloorDynamicMapManager.Instance.CellCenterToWorld(farthest, floorIndex);
+        Vector3 fleePos = MultiFloorDynamicMapManager.Instance.CellCenterToWorld(bestCell, floorIndex);
         RecalcPathTo(fleePos);
     }
 
- 
+    // Versión legacy (si no tienes vector): conserva por compat
+    private void ChooseFleeDestination()
+    {
+        Vector3 awayDir = lastAwayFromLight.sqrMagnitude > 0.0001f
+            ? lastAwayFromLight
+            : (player ? (transform.position - player.position).normalized : Vector3.forward);
+        ChooseFleeDestination(awayDir);
+    }
 
+    // ===== Utilidad de color por batería =====
+    private static Color ColorForBattery(BatteryType battery)
+    {
+        switch (battery)
+        {
+            case BatteryType.Green: return new Color(0.2f, 1f, 0.2f);
+            case BatteryType.Red: return new Color(1f, 0.2f, 0.2f);
+            case BatteryType.Blue: return new Color(0.3f, 0.5f, 1.2f);
+            default: return Color.white;
+        }
+    }
+
+    // ===== Sensado de jugador =====
     bool UpdatePlayerSensing()
     {
         if (!player) return false;
@@ -927,7 +975,6 @@ public class EnemyFSM : MonoBehaviour
         else
             transform.rotation = Quaternion.RotateTowards(transform.rotation, look, deg);
     }
-
 
     void SetAnimation(string state)
     {
@@ -1017,18 +1064,7 @@ public class EnemyFSM : MonoBehaviour
         }
     }
 
-
-    private static Color ColorForBattery(BatteryType battery)
-    {
-        switch (battery)
-        {
-            case BatteryType.Green: return new Color(0.2f, 1f, 0.2f);
-            case BatteryType.Red: return new Color(1f, 0.2f, 0.2f);
-            case BatteryType.Blue: return new Color(0.3f, 0.5f, 1.2f);
-            default: return Color.white;
-        }
-    }
-
+    // ===== Flash visual de susto =====
     private IEnumerator CoScareFlash(Color flashColor)
     {
         if (_scareMatCache.Count == 0) yield break;

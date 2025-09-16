@@ -7,7 +7,7 @@ using System.Collections.Generic;
 [DisallowMultipleComponent]
 public class CustomModeStoryPanel : MonoBehaviour
 {
-    public enum FillMode { Stretch, Fit, Cover } 
+    public enum FillMode { Stretch, Fit, Cover }
 
     [Header("UI")]
     public TextMeshProUGUI titleText;
@@ -21,13 +21,9 @@ public class CustomModeStoryPanel : MonoBehaviour
     public bool autoOpenOnEnable = true;
 
     [Header("Fondos por nodo (múltiples capas)")]
-    [Tooltip("Contenedor donde se crearán las capas (Images). Debe estar detrás del texto y estirado a toda la pantalla.")]
     public RectTransform backgroundContainer;
-    [Tooltip("Plantilla opcional (desactivada) para instanciar cada capa. Si es null, se crearán Images simples.")]
     public Image backgroundImageTemplate;
-
-    [Tooltip("Cómo rellenar el contenedor: Stretch (deforma), Fit (encaja), Cover (cubre recortando)")]
-    public FillMode fillMode = FillMode.Cover; 
+    public FillMode fillMode = FillMode.Cover;
 
     [Header("Layout (botones desde el centro hacia abajo)")]
     public float buttonHeight = 44f;
@@ -59,7 +55,7 @@ public class CustomModeStoryPanel : MonoBehaviour
     CustomModeStoryNode current;
     readonly List<GameObject> spawnedButtons = new List<GameObject>();
 
-    // Acumuladores
+    // Acumuladores (dejamos densidades internas pero no se usan al crear el perfil)
     float accEnemyStat, accEnemyDensity, accBatteryDrain, accBatteryDensity, accFragmentDensity;
     int accFragments;
     float accMapSizePct;
@@ -196,18 +192,16 @@ public class CustomModeStoryPanel : MonoBehaviour
             img.sprite = sp;
             img.color = node.bgTint;
             img.type = Image.Type.Simple;
-            img.preserveAspect = false; 
+            img.preserveAspect = false;
 
             SizeImageToFill(img.rectTransform, sp, contSize, fillMode);
         }
     }
 
-
     void SizeImageToFill(RectTransform rt, Sprite sprite, Vector2 containerSize, FillMode mode)
     {
         if (!rt || !sprite) return;
 
-  
         rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
         rt.pivot = new Vector2(0.5f, 0.5f);
 
@@ -227,18 +221,13 @@ public class CustomModeStoryPanel : MonoBehaviour
         switch (mode)
         {
             case FillMode.Stretch:
-
                 target = containerSize;
                 break;
-
             case FillMode.Fit:
-
                 float fit = Mathf.Min(scaleX, scaleY);
                 target = new Vector2(sprW * fit, sprH * fit);
                 break;
-
-            default: 
-
+            default: // Cover
                 float cover = Mathf.Max(scaleX, scaleY);
                 target = new Vector2(sprW * cover, sprH * cover);
                 break;
@@ -247,7 +236,6 @@ public class CustomModeStoryPanel : MonoBehaviour
         rt.sizeDelta = target;
         rt.anchoredPosition = Vector2.zero;
     }
-
 
     void SplitFirstLine(string s, out string firstLine, out string rest)
     {
@@ -369,7 +357,6 @@ public class CustomModeStoryPanel : MonoBehaviour
         }
     }
 
-
     void OnChoose(CustomModeStoryNode.Option opt)
     {
         if (_locked) return;
@@ -406,10 +393,11 @@ public class CustomModeStoryPanel : MonoBehaviour
     {
         var p = ScriptableObject.CreateInstance<CustomModeProfile>();
         p.enemyStatMul = Mathf.Clamp(1f + accEnemyStat, mulMin, mulMax);
-        p.enemyDensityMul = Mathf.Clamp(1f + accEnemyDensity, mulMin, mulMax);
         p.batteryDrainMul = Mathf.Clamp(1f + accBatteryDrain, mulMin, mulMax);
-        p.batteryDensityMul = Mathf.Clamp(1f + accBatteryDensity, mulMin, mulMax);
-        p.fragmentDensityMul = Mathf.Clamp(1f + accFragmentDensity, mulMin, mulMax);
+
+        // Probabilidad de salas (neutro por defecto)
+        p.room2ChanceMul = 1f;
+        p.room3ChanceMul = 1f;
 
         p.mapSizeMul = Mathf.Clamp(1f + accMapSizePct, mapMulMin, mapMulMax);
         p.maxMapSize = 49;
@@ -427,14 +415,14 @@ public class CustomModeStoryPanel : MonoBehaviour
         if (debugLogs)
         {
             Debug.Log($"[Story] Perfil final -> " +
-                $"enemyStatMul={p.enemyStatMul:F2}, enemyDensityMul={p.enemyDensityMul:F2}, " +
-                $"batteryDrainMul={p.batteryDrainMul:F2}, batteryDensityMul={p.batteryDensityMul:F2}, " +
-                $"fragmentDensityMul={p.fragmentDensityMul:F2}, mapSizeMul={p.mapSizeMul:F2}, " +
+                $"enemyStatMul={p.enemyStatMul:F2}, batteryDrainMul={p.batteryDrainMul:F2}, " +
+                $"room2ChanceMul={p.room2ChanceMul:F2}, room3ChanceMul={p.room3ChanceMul:F2}, " +
+                $"mapSizeMul={p.mapSizeMul:F2}, " +
                 $"maxMapSize={p.maxMapSize}, targetFragments={p.targetFloors}, " +
                 $"flags: torchesFew={p.torchesOnlyStartFew}, e2Drain={p.enemy2DrainsBattery}, e3Resist={p.enemy3ResistsLight}");
         }
 
-        if (GameManager.Instance) GameManager.Instance.StartCustomMode();
+        // Evitamos doble inicio: CustomModeRuntime.SetProfile ya inicia el modo.
 
         if (autoLoadGameOnFinish && !string.IsNullOrEmpty(gameplayScene))
         {
